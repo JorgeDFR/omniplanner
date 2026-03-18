@@ -9,7 +9,6 @@ import rclpy
 import rclpy.duration
 import tf2_ros
 import tf_transformations
-from hydra_ros import DsgSubscriber
 from nav_msgs.msg import Path
 from omniplanner.compile_plan import collect_plans, compile_plan
 from omniplanner.omniplanner import full_planning_pipeline
@@ -24,39 +23,41 @@ from rclpy.qos import (
 )
 from robot_executor_interface_ros.action_descriptions_ros import to_msg, to_viz_msg
 from robot_executor_msgs.msg import ActionSequenceMsg
-from robot_vocalizer.plan_vocalizer import PlanVocalizer
 from ros_system_monitor_msgs.msg import NodeInfoMsg
 from spark_config import Config, config_field, register_config
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
 from visualization_msgs.msg import MarkerArray
 
+#from robot_vocalizer.plan_vocalizer import PlanVocalizer
+
+from omniplanner_ros.hydra_ros import DsgSubscriber
 from omniplanner_ros.ros_logging import setup_ros_log_forwarding
 
 logging.basicConfig(level=logging.INFO, force=True)
 logger = logging.getLogger(__name__)
 
 
-def get_plan_vocalizer(node):
-    node.declare_parameter("vocalize", False)
-    vocalize = node.get_parameter("vocalize").value
-    if not vocalize:
-        return None
+# def get_plan_vocalizer(node):
+#     node.declare_parameter("vocalize", False)
+#     vocalize = node.get_parameter("vocalize").value
+#     if not vocalize:
+#         return None
 
-    node.declare_parameter("openai_api_key", "")
-    openai_api_key = node.get_parameter("openai_api_key").value
-    if openai_api_key == "":
-        openai_api_key = None
+#     node.declare_parameter("openai_api_key", "")
+#     openai_api_key = node.get_parameter("openai_api_key").value
+#     if openai_api_key == "":
+#         openai_api_key = None
 
-    node.declare_parameter("deepgram_api_key", "")
-    deepgram_api_key = node.get_parameter("deepgram_api_key").value
-    if deepgram_api_key == "":
-        deepgram_api_key = None
+#     node.declare_parameter("deepgram_api_key", "")
+#     deepgram_api_key = node.get_parameter("deepgram_api_key").value
+#     if deepgram_api_key == "":
+#         deepgram_api_key = None
 
-    if openai_api_key is not None and deepgram_api_key is not None:
-        return PlanVocalizer(openai_api_key, deepgram_api_key)
-    else:
-        return None
+#     if openai_api_key is not None and deepgram_api_key is not None:
+#         return PlanVocalizer(openai_api_key, deepgram_api_key)
+#     else:
+#         return None
 
 
 def plan_to_string(robot_plan):
@@ -233,7 +234,7 @@ class OmniPlannerRos(Node):
         config_path = self.get_parameter("plugin_config_path").value
         assert config_path != "", "plugin_config_path cannot be empty"
 
-        self.plan_vocalizer = get_plan_vocalizer(self)
+        #self.plan_vocalizer = get_plan_vocalizer(self)
 
         self.config = OmniplannerNodeConfig.load(config_path)
 

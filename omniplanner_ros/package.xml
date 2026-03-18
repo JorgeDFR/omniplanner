@@ -7,8 +7,19 @@
   <maintainer email="aaronray@mit.edu">aaron</maintainer>
   <license>TODO: License declaration</license>
 
+  <depend>rclpy</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf_transformations</depend>
+  <depend>std_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>visualization_msgs</depend>
+  <depend>builtin_interfaces</depend>
+
+  <depend>hydra_msgs</depend>
   <depend>omniplanner_msgs</depend>
-  <depend>python3-parse</depend>
+  <depend>robot_executor_msgs</depend>
+  <depend>ros_system_monitor_msgs</depend>
 
   <export>
     <build_type>ament_python</build_type>

@@ -2,10 +2,7 @@ import numpy as np
 from utils import DummyRobotPlanningAdaptor, build_test_dsg
 
 from omniplanner.goto_points import GotoPointsDomain, GotoPointsGoal
-from omniplanner.omniplanner import (
-    PlanRequest,
-    full_planning_pipeline,
-)
+from omniplanner.omniplanner import PlanRequest, full_planning_pipeline
 from omniplanner_ros.goto_points_ros import compile_plan
 
 print("================================")
@@ -39,7 +36,7 @@ print(plan)
 
 adaptor = DummyRobotPlanningAdaptor("spot", "spot", "map", "body")
 
-compiled_plan = compile_plan(adaptor, plan)
+compiled_plan = compile_plan(adaptor, "map", plan)
 print("compiled plan:")
 print(compiled_plan)
 
@@ -60,6 +57,6 @@ plan = full_planning_pipeline(req, G)
 print("Plan from planning domain:")
 print(plan)
 
-compiled_plan = compile_plan(adaptor, plan)
+compiled_plan = compile_plan(adaptor, "map", plan)
 print("compiled plan:")
 print(compiled_plan)

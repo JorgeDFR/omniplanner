@@ -46,7 +46,7 @@ robot_plan = full_planning_pipeline(req, G)
 print("Plan from planning domain:")
 print(robot_plan)
 
-compiled_plan = compile_plan(adaptor, robot_plan)
+compiled_plan = compile_plan(adaptor, "map", robot_plan)
 print("compiled plan:")
 print(compiled_plan)
 
@@ -105,6 +105,6 @@ print("Plan from planning domain:")
 print(plan)
 
 
-compiled_plan = compile_plan(adaptors, plan)
+compiled_plan = compile_plan(adaptors, "map", plan)
 print("compiled plan:")
 print(compiled_plan)

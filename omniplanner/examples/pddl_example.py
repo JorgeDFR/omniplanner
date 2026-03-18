@@ -2,10 +2,10 @@ import logging
 
 import numpy as np
 import spark_dsg
-from dsg_pddl.pddl_grounding import PddlDomain, PddlGoal
 from ruamel.yaml import YAML
 from utils import DummyRobotPlanningAdaptor, load_omniplanner_pddl_domain
 
+from dsg_pddl.pddl_grounding import PddlDomain, PddlGoal
 from omniplanner.compile_plan import collect_plans
 from omniplanner.omniplanner import PlanRequest, full_planning_pipeline
 from omniplanner_ros.pddl_planner_ros import compile_plan

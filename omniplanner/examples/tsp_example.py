@@ -3,15 +3,12 @@ import logging
 import numpy as np
 from utils import DummyRobotPlanningAdaptor, build_test_dsg
 
-from omniplanner.omniplanner import (
-    PlanRequest,
-    full_planning_pipeline,
-)
 from omniplanner.tsp import TspDomain, TspGoal
+from omniplanner.omniplanner import PlanRequest, full_planning_pipeline
 from omniplanner_ros.goto_points_ros import compile_plan
 
 logging.basicConfig()
-logging.getLogger().setLevel(logging.DEBUG)
+logging.getLogger().setLevel(logging.INFO)
 
 adaptor = DummyRobotPlanningAdaptor("euclid", "spot", "map", "body")
 
@@ -38,6 +35,6 @@ robot_plan = full_planning_pipeline(req, G)
 print("Plan from planning domain:")
 print(robot_plan)
 
-compiled_plan = compile_plan(adaptor, robot_plan)
+compiled_plan = compile_plan(adaptor, "map", robot_plan)
 print("compiled plan:")
 print(compiled_plan)

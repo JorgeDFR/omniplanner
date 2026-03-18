@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "omniplanner"
+version = "0.0.1"
+description = "Central interface for planning pipeline(s)"
+readme = "README.md"
+requires-python = ">=3.12"
+
+authors = [
+    {name = "TODO", email = "todo@email.com"}
+]
+
+dependencies = [
+    "numpy<2",
+    "networkx",
+    "parse",
+    "plum-dispatch",
+    "ruamel.yaml",
+    "spark-dsg",
+    "nlu-interface @ git+https://github.com/robustrobotics/nlu_interface.git@bb5d47ad30161747d13b45a61efbeb994576322d#subdirectory=nlu_interface",
+    "spark-config @ git+https://github.com/mit-spark/spark-config.git",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"*" = ["*.yaml", "*.pddl"]

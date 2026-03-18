@@ -28,10 +28,9 @@ data_files = (
     + config_files
 )
 
-
 setup(
     name=package_name,
-    version="0.0.0",
+    version="0.0.1",
     package_dir={"": "src"},
     packages=find_packages("src"),
     data_files=data_files,
