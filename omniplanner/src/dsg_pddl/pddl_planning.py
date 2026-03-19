@@ -29,6 +29,7 @@ def solve_pddl(problem: GroundedPddlProblem):
             problem_fn,
             "--search",
             "let(hff, ff(), let(hcea, cea(), lazy_greedy([hff, hcea], preferred=[hff, hcea])))",
+            #"let(hff, ff(), astar(hff))",
         ]
 
         logger.debug(f"Calling: {command}")

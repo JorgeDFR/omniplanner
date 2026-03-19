@@ -7,6 +7,7 @@ from omniplanner_ros.goto_points_ros import compile_plan
 from utils import DummyRobotPlanningAdaptor, build_test_dsg
 
 
+print("")
 print("================================")
 print("== Goto Points Domain, no DSG ==")
 print("================================")
@@ -50,6 +51,7 @@ print(collected_plans)
 
 
 
+print("")
 print("==================================")
 print("== Goto Points Domain, with DSG ==")
 print("==================================")

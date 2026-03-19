@@ -1,8 +1,11 @@
 from dataclasses import dataclass
 from importlib.resources import as_file, files
 
-import spark_dsg
 import numpy as np
+import matplotlib.cm as cm
+import matplotlib.pyplot as plt
+
+import spark_dsg
 import dsg_pddl.domains
 
 
@@ -162,3 +165,87 @@ def build_test_dsg():
     G.metadata.add(labelspaces)
 
     return G
+
+
+def visualize_plan(collected_plan, DSG, show_objects=True):
+    """
+    Visualize a robot plan over the entire DSG graph.
+
+    Args:
+        collected_plan: ActionSequence object (e.g., collected_plans['euclid'])
+        DSG: spark_dsg.DynamicSceneGraph
+        show_objects: Whether to plot pick/place actions
+    """
+    actions = collected_plan.actions
+
+    # --- 1. Print actions ---
+    print("\n==== Action Sequence ====")
+    for i, act in enumerate(actions):
+        if act.__class__.__name__ == "Follow":
+            print(f"{i+1}: Move along path until {act.path2d[-1][:2]}")
+        elif act.__class__.__name__ == "Pick":
+            print(f"{i+1}: Pick object '{act.object_id}' at {act.object_point[:2]}")
+        elif act.__class__.__name__ == "Place":
+            print(f"{i+1}: Place object '{act.object_id}' at {act.object_point[:2]}")
+        else:
+            print(f"{i+1}: {act}")
+
+    # --- 2. Plot DSG graph ---
+    plt.figure(figsize=(12, 10))
+    plt.title("Robot Plan on DSG Graph")
+    plt.xlabel("X")
+    plt.ylabel("Y")
+
+    # --- Plot places layer nodes ---
+    try:
+        places_layer = DSG.get_layer(spark_dsg.DsgLayers.MESH_PLACES)
+    except Exception:
+        places_layer = DSG.get_layer(20)
+
+    node_positions = []
+    for node in places_layer.nodes:
+        pos = node.attributes.position[:2]
+        node_positions.append(pos)
+        plt.text(pos[0]+0.2, pos[1]+0.2, node.id, fontsize=6, color="black")
+    node_positions = np.array(node_positions)
+    if len(node_positions) > 0:
+        plt.scatter(node_positions[:, 0], node_positions[:, 1],
+                    label="DSG (Places Layer)", c="black", s=50, alpha=0.6)
+
+    # Plot edges
+    for src_node in places_layer.nodes:
+        src_pos = src_node.attributes.position[:2]
+        for neighbor in src_node.siblings():
+            dst_node = DSG.get_node(neighbor)
+            dst_pos = dst_node.attributes.position[:2]
+            plt.plot([src_pos[0], dst_pos[0]], [src_pos[1], dst_pos[1]], 'gray', alpha=0.3)
+
+    # --- 3. Plot robot path with colored segments ---
+    cmap = cm.get_cmap('tab10')  # color map for different segments
+    segment_idx = 0
+
+    # Keep track of robot start position
+    robot_start = None
+    for act in actions:
+        if act.__class__.__name__ == "Follow":
+            path = np.array(act.path2d)
+            if robot_start is None:
+                robot_start = path[0]  # first point of the first Follow
+                plt.scatter(robot_start[0], robot_start[1], c='blue', s=120, marker='*', label="Start")
+            color = cmap(segment_idx % 10)
+            plt.plot(path[:, 0], path[:, 1], '-o', color=color,
+                     label=f"Segment {segment_idx+1}")
+            segment_idx += 1
+        elif show_objects and act.__class__.__name__ in ["Pick", "Place"]:
+            obj_pos = np.array(act.object_point[:2])
+            plt.scatter(obj_pos[0], obj_pos[1],
+                        c='red' if act.__class__.__name__=="Pick" else 'green',
+                        marker='s', s=100,
+                        label=f"{act.__class__.__name__} '{act.object_id}'"
+                        if f"{act.__class__.__name__} '{act.object_id}'" not in plt.gca().get_legend_handles_labels()[1] else "")
+            plt.text(obj_pos[0]+0.2, obj_pos[1]+0.2, f"{act.object_id}", fontsize=8)
+
+    plt.legend()
+    plt.grid(True)
+    plt.axis('equal')
+    plt.show()

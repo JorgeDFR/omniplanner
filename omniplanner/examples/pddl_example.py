@@ -7,7 +7,7 @@ from dsg_pddl.pddl_grounding import PddlDomain, PddlGoal
 from omniplanner.compile_plan import collect_plans
 from omniplanner.omniplanner import PlanRequest, full_planning_pipeline
 from omniplanner_ros.pddl_planner_ros import compile_plan
-from utils import DummyRobotPlanningAdaptor, load_omniplanner_pddl_domain
+from utils import DummyRobotPlanningAdaptor, load_omniplanner_pddl_domain, visualize_plan
 
 logging.basicConfig()
 logging.getLogger().setLevel(logging.INFO)
@@ -21,7 +21,7 @@ adaptors = {"euclid": adaptor}
 robot_poses = {"euclid": np.array([-20.5, -10.5])}
 
 
-
+print("")
 print("================================")
 print("==   PDDL Domain (Simple)     ==")
 print("================================")
@@ -45,15 +45,18 @@ req = PlanRequest(
 )
 
 plan = full_planning_pipeline(req, G)
-print("\nPlan from planning domain:")
-print(plan)
+# print("\nPlan from planning domain:")
+# print(plan)
 
 collected_plans = collect_plans(compile_plan(adaptors, "map", plan))
-print("\nCollected plans:")
-print(collected_plans)
+# print("\nCollected plans:")
+# print(collected_plans)
+
+visualize_plan(collected_plans['euclid'], G)
 
 
 
+print("")
 print("================================")
 print("==   PDDL Domain (Pick/Place) ==")
 print("================================")
@@ -75,15 +78,18 @@ req = PlanRequest(
 )
 
 plan = full_planning_pipeline(req, G)
-print("\nPlan from planning domain:")
-print(plan)
+# print("\nPlan from planning domain:")
+# print(plan)
 
 collected_plans = collect_plans(compile_plan(adaptors, "map", plan))
-print("\nCollected plans:")
-print(collected_plans)
+# print("\nCollected plans:")
+# print(collected_plans)
+
+visualize_plan(collected_plans['euclid'], G)
 
 
 
+print("")
 print("================================")
 print("==   PDDL Domain (Regions)    ==")
 print("================================")
@@ -107,9 +113,11 @@ req = PlanRequest(
 )
 
 plan = full_planning_pipeline(req, G)
-print("\nPlan from planning domain:")
-print(plan)
+# print("\nPlan from planning domain:")
+# print(plan)
 
 collected_plans = collect_plans(compile_plan(adaptors, "map", plan))
-print("\nCollected plans:")
-print(collected_plans)
+# print("\nCollected plans:")
+# print(collected_plans)
+
+visualize_plan(collected_plans['euclid'], G)

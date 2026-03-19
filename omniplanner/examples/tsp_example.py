@@ -12,6 +12,7 @@ logging.basicConfig()
 logging.getLogger().setLevel(logging.INFO)
 
 
+print("")
 print("==========================")
 print("== TSP Domain           ==")
 print("==========================")
