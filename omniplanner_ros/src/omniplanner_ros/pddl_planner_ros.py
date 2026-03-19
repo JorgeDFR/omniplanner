@@ -127,16 +127,16 @@ def compile_multirobot_pddl_plan(
                 f"Multi-robot plan has action {sym_action} that either doesn't to specify a robot, or specifies a robot other than one that is allowed by the planning problem!"
             )
 
-    logger.info("Plans before multi-robot projection: ")
+    logger.debug("Plans before multi-robot projection: ")
     for v in plan_per_robot.values():
-        logger.info(v.symbolic_actions)
+        logger.debug(v.symbolic_actions)
     single_robot_action_sequences = [
         with_new_value(mr_sym_plan.value, RobotWrapper(k, project_multirobot_plan(v)))
         for k, v in plan_per_robot.items()
     ]
-    logger.info("Plans after projection: ")
+    logger.debug("Plans after projection: ")
     for p in single_robot_action_sequences:
-        logger.info(p.value.value.symbolic_actions)
+        logger.debug(p.value.value.symbolic_actions)
     result = fmap(
         partial(compile_plan, adaptors, plan_frame), single_robot_action_sequences
     )

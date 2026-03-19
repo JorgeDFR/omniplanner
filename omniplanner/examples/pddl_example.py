@@ -1,33 +1,26 @@
 import logging
 
-import numpy as np
 import spark_dsg
-from ruamel.yaml import YAML
-from utils import DummyRobotPlanningAdaptor, load_omniplanner_pddl_domain
+import numpy as np
 
 from dsg_pddl.pddl_grounding import PddlDomain, PddlGoal
 from omniplanner.compile_plan import collect_plans
 from omniplanner.omniplanner import PlanRequest, full_planning_pipeline
 from omniplanner_ros.pddl_planner_ros import compile_plan
+from utils import DummyRobotPlanningAdaptor, load_omniplanner_pddl_domain
 
 logging.basicConfig()
 logging.getLogger().setLevel(logging.INFO)
 
-yaml = YAML(typ="safe")
 
-
-# G = build_test_dsg()
-# goal = PddlGoal(robot_id="euclid", pddl_goal="(and (visited-object o0) (visited-object o1))")
-# goal = PddlGoal(robot_id="euclid", pddl_goal="(object-in-place o1 p0)")
-G = spark_dsg.DynamicSceneGraph.load(
-    "/home/ubuntu/lxc_datashare/west_point_fused_map_wregions_labelspace.json"
-)
-
+G = spark_dsg.DynamicSceneGraph.load("resources/example_dsg.json")
 
 adaptor = DummyRobotPlanningAdaptor("euclid", "spot", "map", "body")
 adaptors = {"euclid": adaptor}
 
-robot_poses = {"euclid": np.array([0.0, 0.1])}
+robot_poses = {"euclid": np.array([-20.5, -10.5])}
+
+
 
 print("================================")
 print("==   PDDL Domain (Simple)     ==")
@@ -37,12 +30,12 @@ print("")
 # TODO: Currently the simple domain has no notion of regions. I intend to add regions here,
 # but in a simple way that doesn't reflect the fact that a place is "in" a region.
 goal = PddlGoal(
-    robot_id="euclid", pddl_goal="(and (visited-place p1042) (visited-object o94))"
+    robot_id="euclid",
+    pddl_goal="(and (visited-place p1350) (visited-object o95))"
 )
 
 # Load the PDDL domain you want to use
 domain = PddlDomain(load_omniplanner_pddl_domain("GotoObjectDomain.pddl"))
-
 
 # Build the plan request
 req = PlanRequest(
@@ -51,29 +44,28 @@ req = PlanRequest(
     robot_states=robot_poses,
 )
 
-
 plan = full_planning_pipeline(req, G)
-
-print("Plan from planning domain:")
+print("\nPlan from planning domain:")
 print(plan)
 
-compiled_plan = compile_plan(adaptors, "map", plan)
-print(compiled_plan)
-
-collected_plans = collect_plans(compiled_plan)
-print("Collected plans:")
+collected_plans = collect_plans(compile_plan(adaptors, "map", plan))
+print("\nCollected plans:")
 print(collected_plans)
+
 
 
 print("================================")
 print("==   PDDL Domain (Pick/Place) ==")
 print("================================")
 print("")
-goal = PddlGoal(robot_id="euclid", pddl_goal="(and (object-in-place o94 p2157))")
+
+goal = PddlGoal(
+    robot_id="euclid",
+    pddl_goal="(and (object-in-place o95 p2410))"
+)
 
 # Load the PDDL domain you want to use
 domain = PddlDomain(load_omniplanner_pddl_domain("ObjectRearrangementDomain.pddl"))
-
 
 # Build the plan request
 req = PlanRequest(
@@ -82,14 +74,14 @@ req = PlanRequest(
     robot_states=robot_poses,
 )
 
-
 plan = full_planning_pipeline(req, G)
-
-print("Plan from planning domain:")
+print("\nPlan from planning domain:")
 print(plan)
 
-collected_plan = collect_plans(compile_plan(adaptors, "map", plan))
-print("collected plan: ", collected_plan)
+collected_plans = collect_plans(compile_plan(adaptors, "map", plan))
+print("\nCollected plans:")
+print(collected_plans)
+
 
 
 print("================================")
@@ -97,20 +89,15 @@ print("==   PDDL Domain (Regions)    ==")
 print("================================")
 print("")
 
-
-# goal = PddlGoal(robot_id="euclid", pddl_goal="(or (visited-place r116) (and (visited-place r69) (visited-place r83)))")
-# goal = PddlGoal(robot_id="euclid", pddl_goal="(object-in-place o94 r5)")
-# goal = PddlGoal(robot_id="euclid", pddl_goal="(visited-poi o61)")
 goal = PddlGoal(
     robot_id="euclid",
-    pddl_goal="(and (visited-region r70) (at-place p1042) (object-in-place o94 p2157))",
+    pddl_goal="(and (visited-region r4) (at-place p1396) (object-in-place o95 p2410))",
 )
 
 # Load the PDDL domain you want to use
 domain = PddlDomain(
     load_omniplanner_pddl_domain("RegionObjectRearrangementDomain.pddl")
 )
-
 
 # Build the plan request
 req = PlanRequest(
@@ -119,12 +106,10 @@ req = PlanRequest(
     robot_states=robot_poses,
 )
 
-
 plan = full_planning_pipeline(req, G)
-
-print("Plan from planning domain:")
+print("\nPlan from planning domain:")
 print(plan)
 
-
-collected_plan = collect_plans(compile_plan(adaptors, "map", plan))
-print("collected plan: ", collected_plan)
+collected_plans = collect_plans(compile_plan(adaptors, "map", plan))
+print("\nCollected plans:")
+print(collected_plans)

@@ -22,18 +22,28 @@ def solve_pddl(problem: GroundedPddlProblem):
         with open(domain_fn, "w") as fo:
             fo.write(problem.domain.to_string())
 
-        command = ["fast-downward"]
-        command += ["--plan-file", plan_fn]
-        command += [domain_fn]
-        command += [problem_fn]
-        command += [
+        command = [
+            "fast-downward",
+            "--plan-file", plan_fn,
+            domain_fn,
+            problem_fn,
             "--search",
             "let(hff, ff(), let(hcea, cea(), lazy_greedy([hff, hcea], preferred=[hff, hcea])))",
         ]
 
-        logger.warning(f"Calling: {command}")
-        return_code = subprocess.run(command)
-        logger.warning(f"Return code: {return_code}")
+        logger.debug(f"Calling: {command}")
+        if logger.isEnabledFor(logging.DEBUG):
+            result = subprocess.run(command)
+        else:
+            result = subprocess.run(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            if result.returncode != 0:
+                logger.error(result.stderr)
+        logger.debug(f"Return code: {result.returncode}")
 
         if os.path.exists(plan_fn):
             with open(plan_fn, "r") as fo:

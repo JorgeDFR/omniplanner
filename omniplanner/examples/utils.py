@@ -1,9 +1,9 @@
 from dataclasses import dataclass
 from importlib.resources import as_file, files
 
-import dsg_pddl.domains
-import numpy as np
 import spark_dsg
+import numpy as np
+import dsg_pddl.domains
 
 
 def load_omniplanner_pddl_domain(domain_name):

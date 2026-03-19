@@ -1,13 +1,16 @@
 import numpy as np
-from utils import DummyRobotPlanningAdaptor, build_test_dsg
 
 from omniplanner.goto_points import GotoPointsDomain, GotoPointsGoal
+from omniplanner.compile_plan import collect_plans
 from omniplanner.omniplanner import PlanRequest, full_planning_pipeline
 from omniplanner_ros.goto_points_ros import compile_plan
+from utils import DummyRobotPlanningAdaptor, build_test_dsg
+
 
 print("================================")
 print("== Goto Points Domain, no DSG ==")
 print("================================")
+print("")
 
 points = np.array(
     [
@@ -24,39 +27,53 @@ points = np.array(
     ]
 )
 
-
-req = PlanRequest(
-    domain=GotoPointsDomain(), goal=[1, 2, 3, 4], robot_states=np.array([0.0, 0.1])
-)
-plan = full_planning_pipeline(req, points)
-
-
-print("Plan from planning domain:")
-print(plan)
-
 adaptor = DummyRobotPlanningAdaptor("spot", "spot", "map", "body")
 
-compiled_plan = compile_plan(adaptor, "map", plan)
-print("compiled plan:")
-print(compiled_plan)
+robot_poses = np.array([0.0, 0.1])
+
+goal = [1, 2, 3, 4]
+
+req = PlanRequest(
+    domain=GotoPointsDomain(),
+    goal=[1, 2, 3, 4],
+    robot_states=robot_poses
+)
+
+plan = full_planning_pipeline(req, points)
+
+print("\nPlan from planning domain:")
+print(plan)
+
+collected_plans = collect_plans(compile_plan(adaptor, "map", plan))
+print("\nCollected plans:")
+print(collected_plans)
+
 
 
 print("==================================")
 print("== Goto Points Domain, with DSG ==")
 print("==================================")
-
-robot_poses = {"spot": np.array([0.0, 0.1])}
-goal = GotoPointsGoal(["O(0)", "O(1)"], "spot")
-
-robot_states = robot_poses
-req = PlanRequest(domain=GotoPointsDomain(), goal=goal, robot_states=robot_states)
+print("")
 
 G = build_test_dsg()
+
+adaptor = DummyRobotPlanningAdaptor("spot", "spot", "map", "body")
+
+robot_poses = {"spot": np.array([0.0, 0.1])}
+
+goal = GotoPointsGoal(["O(0)", "O(1)"], "spot")
+
+req = PlanRequest(
+    domain=GotoPointsDomain(),
+    goal=goal,
+    robot_states=robot_poses
+)
+
 plan = full_planning_pipeline(req, G)
 
-print("Plan from planning domain:")
+print("\nPlan from planning domain:")
 print(plan)
 
-compiled_plan = compile_plan(adaptor, "map", plan)
-print("compiled plan:")
-print(compiled_plan)
+collected_plans = collect_plans(compile_plan(adaptor, "map", plan))
+print("\nCollected plans:")
+print(collected_plans)

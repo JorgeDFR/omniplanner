@@ -53,8 +53,8 @@ class PddlProblem:
 
         problem += ")"
 
-        print("pddl problem: ")
-        print(problem)
+        logger.debug(f"PDDL problem:\n{problem}")
+
         return problem
 
     def to_goal_string(self, goal):

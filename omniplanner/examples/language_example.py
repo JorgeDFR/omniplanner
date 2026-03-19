@@ -67,7 +67,7 @@ with as_file(files(dsg_pddl.domains).joinpath("GotoObjectDomain.pddl")) as path:
         domain = PddlDomain(fo.read())
 
 # Load the LLM config to use
-with open("llm_config.yaml", "r") as file:
+with open("resources/llm_config.yaml", "r") as file:
     llm_config = yaml.load(file)
 
 

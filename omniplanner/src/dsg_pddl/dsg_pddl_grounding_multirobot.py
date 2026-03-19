@@ -219,7 +219,7 @@ def generate_multirobot_region_pddl(
             f.write(problem_str)
         with open(latest_problem, "w") as f:
             f.write(problem_str)
-        logger.info(f"Saved multi-robot region PDDL to {persistent_problem}")
+        logger.debug(f"Saved multi-robot region PDDL to {persistent_problem}")
     except Exception as e:
         logger.warning(f"Failed to persist multi-robot region PDDL dump: {e}")
 
@@ -234,7 +234,7 @@ def ground_problem(
     goal: PddlGoal,
     feedback: Any = None,
 ) -> MultiRobotWrapper[GroundedPddlProblem]:
-    logger.warning(f"Grounding PDDL Problem {domain.domain_name}")
+    logger.info(f"Grounding PDDL Problem {domain.domain_name}")
 
     pddl_compliant_robot_states = {k.lower(): v for k, v in robot_states.items()}
     match domain.domain_name:

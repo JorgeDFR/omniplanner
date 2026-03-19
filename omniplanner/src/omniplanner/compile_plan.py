@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 def compile_plan(
     adaptors, plan_frame: str, p: SymbolicContext[List[Any]]
 ) -> List[RobotWrapper[Any]]:
-    logger.warning(f"SymbolicContext[List[Any]] with: {type(p)}")
+    logger.debug(f"SymbolicContext[List[Any]] with: {type(p)}")
     return fmap(partial(compile_plan, adaptors, plan_frame), push(p))
 
 
@@ -31,7 +31,7 @@ def compile_plan(
 def compile_plan(
     adaptors: dict, plan_frame: str, p: SymbolicContext[RobotWrapper[Any]]
 ) -> RobotWrapper[Any]:
-    logger.warning(f"SymbolicContext[RobotWrapper[Any]] with: {type(p)}")
+    logger.debug(f"SymbolicContext[RobotWrapper[Any]] with: {type(p)}")
     robot_symbolic = push(p)
     adaptor = adaptors[robot_symbolic.name]
     return fmap(partial(compile_plan, adaptor, plan_frame), robot_symbolic)
@@ -40,7 +40,7 @@ def compile_plan(
 @overload
 @dispatch
 def compile_plan(adaptors: dict, plan_frame: str, p: list):
-    logger.warning(f"list[] with: {type(p)}")
+    logger.debug(f"list[] with: {type(p)}")
     return fmap(partial(compile_plan, adaptors, plan_frame), p)
 
 
@@ -55,7 +55,7 @@ def compile_plan(adaptors: dict, plan_frame: str, p: RobotWrapper[Any]):
 def compile_plan(
     adaptors: dict, plan_frame: str, p: SymbolicContext[MultiRobotWrapper[Any]]
 ):
-    logger.warning(f"SymbolicContext[MultiRobotWrapper[Any]] with: {type(p)}")
+    logger.debug(f"SymbolicContext[MultiRobotWrapper[Any]] with: {type(p)}")
     multirobot_symbolic = push(p)
     return compile_plan(adaptors, plan_frame, multirobot_symbolic)
 
@@ -65,8 +65,7 @@ def compile_plan(
 def compile_plan(
     adaptors: dict, plan_frame: str, p: MultiRobotWrapper[SymbolicContext[Any]]
 ) -> MultiRobotWrapper[Any]:
-    logger.warning(f"MultiRobotWrapper[SymbolicContext[Any]] with: {type(p)}")
-
+    logger.debug(f"MultiRobotWrapper[SymbolicContext[Any]] with: {type(p)}")
     remapped_adaptors = {p.remap_name_to_inner(k): v for k, v in adaptors.items()}
     return fmap(partial(compile_plan, remapped_adaptors, plan_frame), p)
 

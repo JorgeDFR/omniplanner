@@ -152,7 +152,7 @@ class TspGoal:
 def ground_problem(
     domain: TspDomain, dsg: Any, robot_states: dict, goal: TspGoal, feedback: Any = None
 ) -> RobotWrapper[GroundedTspProblem]:
-    logger.info("Grounding TSP Problem")
+    logger.info(f"Grounding TSP Problem {domain.domain_name}")
 
     start = robot_states[goal.robot_id][:2]
 
@@ -186,11 +186,11 @@ def ground_problem(
 
 @dispatch
 def make_plan(grounded_problem: GroundedTspProblem, map_context: Any) -> FollowPathPlan:
-    logger.warning("Making TSP Plan")
+    logger.info("Making TSP Plan")
 
     match grounded_problem.solver:
         case "2opt":
-            logger.warning("Solving with 2opt")
+            logger.debug("Solving with 2opt")
             tsp_order = solve_tsp_2opt(grounded_problem.distances)
         case _:
             raise NotImplementedError(

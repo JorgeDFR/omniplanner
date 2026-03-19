@@ -1,27 +1,31 @@
 import logging
 
 import numpy as np
-from utils import DummyRobotPlanningAdaptor, build_test_dsg
 
 from omniplanner.tsp import TspDomain, TspGoal
+from omniplanner.compile_plan import collect_plans
 from omniplanner.omniplanner import PlanRequest, full_planning_pipeline
 from omniplanner_ros.goto_points_ros import compile_plan
+from utils import DummyRobotPlanningAdaptor, build_test_dsg
 
 logging.basicConfig()
 logging.getLogger().setLevel(logging.INFO)
 
-adaptor = DummyRobotPlanningAdaptor("euclid", "spot", "map", "body")
 
 print("==========================")
 print("== TSP Domain           ==")
 print("==========================")
 print("")
 
+G = build_test_dsg()
+
+adaptor = DummyRobotPlanningAdaptor("euclid", "spot", "map", "body")
+
+robot_poses = {"spot": np.array([0.0, 0.1])}
+
 goal = TspGoal(goal_points=["O(0)", "O(1)"], robot_id="spot")
 
 robot_domain = TspDomain(solver="2opt")
-
-robot_poses = {"spot": np.array([0.0, 0.1])}
 
 req = PlanRequest(
     domain=robot_domain,
@@ -29,12 +33,11 @@ req = PlanRequest(
     robot_states=robot_poses,
 )
 
-G = build_test_dsg()
-robot_plan = full_planning_pipeline(req, G)
+plan = full_planning_pipeline(req, G)
 
-print("Plan from planning domain:")
-print(robot_plan)
+print("\nPlan from planning domain:")
+print(plan)
 
-compiled_plan = compile_plan(adaptor, "map", robot_plan)
-print("compiled plan:")
-print(compiled_plan)
+collected_plans = collect_plans(compile_plan(adaptor, "map", plan))
+print("\nCollected plans:")
+print(collected_plans)

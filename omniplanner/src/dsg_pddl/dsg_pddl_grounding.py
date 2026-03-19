@@ -358,7 +358,7 @@ def generate_inspection_pddl(G, raw_pddl_goal_string, initial_position):
     parsed_pddl_goal = lisp_string_to_ast(raw_pddl_goal_string)
     goal_symbols_of_interest = extract_symbols_of_interest(G, parsed_pddl_goal)
     normalize_symbols(goal_symbols_of_interest)
-    logger.info(f"Extracted goal_symbols of interest: {goal_symbols_of_interest}")
+    logger.debug(f"Extracted goal_symbols of interest: {goal_symbols_of_interest}")
 
     # ideally we check the goal here and see if we can run a more specialized planner based on the simplified goal
     goal_pddl = simplify(parsed_pddl_goal)
@@ -367,14 +367,14 @@ def generate_inspection_pddl(G, raw_pddl_goal_string, initial_position):
         "pstart", "place", ["at-poi"], position=initial_position
     )
     symbols_of_interest = [start_place_symbol] + goal_symbols_of_interest
-
     add_symbol_positions(G, symbols_of_interest)
+    objects_of_interest = generate_objects(symbols_of_interest)
+    logger.debug(f"generate_objects: {objects_of_interest}")
 
-    logger.info(f"generate_objects: {generate_objects(symbols_of_interest)}")
     problem = PddlProblem(
         name=problem_name,
         domain=problem_domain,
-        objects=generate_objects(symbols_of_interest),
+        objects=objects_of_interest,
         initial_facts=generate_init(G, symbols_of_interest, start_place_symbol),
         goal=goal_pddl,
         optimizing=True,
