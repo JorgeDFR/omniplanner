@@ -196,7 +196,7 @@ def visualize_plan(collected_plan, DSG, show_objects=True):
     plt.xlabel("X")
     plt.ylabel("Y")
 
-    # --- Plot places layer nodes ---
+    # --- Plot Places Layer nodes/edges ---
     try:
         places_layer = DSG.get_layer(spark_dsg.DsgLayers.MESH_PLACES)
     except Exception:
@@ -210,15 +210,42 @@ def visualize_plan(collected_plan, DSG, show_objects=True):
     node_positions = np.array(node_positions)
     if len(node_positions) > 0:
         plt.scatter(node_positions[:, 0], node_positions[:, 1],
-                    label="DSG (Places Layer)", c="black", s=50, alpha=0.6)
+                    label="DSG (Places)", c="black", s=50, alpha=0.6)
 
-    # Plot edges
     for src_node in places_layer.nodes:
         src_pos = src_node.attributes.position[:2]
         for neighbor in src_node.siblings():
             dst_node = DSG.get_node(neighbor)
             dst_pos = dst_node.attributes.position[:2]
             plt.plot([src_pos[0], dst_pos[0]], [src_pos[1], dst_pos[1]], 'gray', alpha=0.3)
+
+    # --- Plot Objects Layer nodes ---
+    objects_layer = DSG.get_layer(spark_dsg.DsgLayers.OBJECTS)
+    node_positions = []
+    for node in objects_layer.nodes:
+        pos = node.attributes.position[:2]
+        node_positions.append(pos)
+        plt.text(pos[0]+0.2, pos[1]+0.2, node.id, fontsize=6, color="black")
+    node_positions = np.array(node_positions)
+    if len(node_positions) > 0:
+        plt.scatter(node_positions[:, 0], node_positions[:, 1],
+                    label="DSG (Objects)", c="blue", marker='^', s=50, alpha=0.6)
+
+    # --- Plot Regions Layer nodes ---
+    regions_layer = DSG.get_layer(spark_dsg.DsgLayers.ROOMS)
+    spark_dsg.add_bounding_boxes_to_layer(DSG, spark_dsg.DsgLayers.ROOMS)
+    added_region_label = False
+    for node in regions_layer.nodes:
+        center = node.attributes.bounding_box.world_P_center[:2]
+        bb_min = node.attributes.bounding_box.min[:2]
+        bb_dim = node.attributes.bounding_box.dimensions[:2]
+        plt.text(center[0]+0.2, center[1]+0.2, node.id, fontsize=8, color="black")
+        label = "DSG (Regions)" if not added_region_label else None
+        rect = plt.Rectangle(bb_min, bb_dim[0], bb_dim[1],
+                            fill=False, edgecolor='black', linewidth=1.5,
+                            alpha=0.5, label=label)
+        plt.gca().add_patch(rect)
+        added_region_label = True
 
     # --- 3. Plot robot path with colored segments ---
     cmap = cm.get_cmap('tab10')  # color map for different segments
@@ -245,7 +272,12 @@ def visualize_plan(collected_plan, DSG, show_objects=True):
                         if f"{act.__class__.__name__} '{act.object_id}'" not in plt.gca().get_legend_handles_labels()[1] else "")
             plt.text(obj_pos[0]+0.2, obj_pos[1]+0.2, f"{act.object_id}", fontsize=8)
 
-    plt.legend()
-    plt.grid(True)
     plt.axis('equal')
+    x_min, x_max = plt.xlim()
+    x_range = x_max - x_min
+    plt.xlim(x_min, x_max + 0.2 * x_range)
+
+    plt.legend(loc='upper right')
+    plt.grid(True)
+    plt.tight_layout()
     plt.show()

@@ -473,6 +473,87 @@ def generate_region_pddl(G, raw_pddl_goal_string, initial_position):
     return problem.to_string(), symbols_of_interest
 
 
+# --------------------------------------------------------------------------- #
+# ---------------------------------- DEVEL ---------------------------------- #
+# --------------------------------------------------------------------------- #
+def generate_dense_places_init(G, symbols_of_interest, start_symbol):
+    connectivity = generate_dense_places_symbol_connectivity(G, symbols_of_interest)
+    connectivity_pddl = symbol_connectivity_to_pddl(connectivity)
+
+    initial_pddl = [("=", ("total-cost",), 0), ("at-poi", start_symbol.symbol)]
+    initial_pddl += connectivity_pddl
+
+    containment_relations = generate_object_containment(G)
+    containment_relations += generate_place_containment(G)
+    initial_pddl += containment_relations
+
+    return initial_pddl
+
+def generate_dense_places_symbol_connectivity(G, symbols):
+    symbol_lookup = {s.symbol: s for s in symbols}
+
+    try:
+        places_layer = G.get_layer(spark_dsg.DsgLayers.MESH_PLACES)
+    except Exception:
+        places_layer = G.get_layer(20)
+
+    edges = []
+
+    # Place <-> Place Edges
+    edges += explicit_edges_from_layer(symbol_lookup, G, places_layer)
+    layer_planner = LayerPlanner(G, spark_dsg.DsgLayers.MESH_PLACES)
+
+    # Connection between starting place and other symbols
+    start_symbol = symbol_lookup["pstart"]
+    start_position = start_symbol.position
+    start_connection_threshold = 3
+    for s in symbols:
+        if s.symbol == "pstart":
+            continue
+
+        d = layer_planner.get_external_distance(start_position, s.position)
+        if d < start_connection_threshold:
+            edges.append((start_symbol, s, d))
+
+    return edges
+
+def generate_test_pddl(G, raw_pddl_goal_string, initial_position):
+    problem_name = "test-domain"
+    problem_domain = "test-domain"
+
+    parsed_pddl_goal = lisp_string_to_ast(raw_pddl_goal_string)
+
+    symbols = extract_all_symbols(G)
+    normalize_symbols(symbols)
+
+    # ideally we check the goal here and see if we can run a more specialized planner based on the simplified goal
+    goal_pddl = simplify(parsed_pddl_goal)
+
+    start_place_symbol = PddlSymbol(
+        "pstart", "place", ["at-poi"], position=initial_position
+    )
+    symbols_of_interest = [start_place_symbol] + symbols
+
+    add_symbol_positions(G, symbols_of_interest)
+
+    pddl_objects = generate_objects(symbols_of_interest)
+    init = generate_dense_places_init(G, symbols_of_interest, start_place_symbol)
+
+    problem = PddlProblem(
+        name=problem_name,
+        domain=problem_domain,
+        objects=pddl_objects,
+        initial_facts=init,
+        goal=goal_pddl,
+        optimizing=True,
+    )
+
+    return problem.to_string(), symbols_of_interest
+# --------------------------------------------------------------------------- #
+# ---------------------------------- DEVEL ---------------------------------- #
+# --------------------------------------------------------------------------- #
+
+
 @dispatch
 def ground_problem(
     domain: PddlDomain,
@@ -497,6 +578,8 @@ def ground_problem(
             )
         case "region-object-rearrangement-domain":
             pddl_problem, symbols = generate_region_pddl(dsg, goal.pddl_goal, start)
+        case "test-domain":
+            pddl_problem, symbols = generate_test_pddl(dsg, goal.pddl_goal, start)
         case _:
             raise NotImplementedError(
                 f"I don't know how to ground a domain of type {domain.domain_name}!"
