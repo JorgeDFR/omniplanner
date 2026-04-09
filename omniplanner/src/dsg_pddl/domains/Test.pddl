@@ -5,23 +5,24 @@
     )
 
     (:predicates
-        (at-poi ?p - place)
-        (connected ?s - place ?t - place)
-        (suspicious ?o - dsg_object)
-        (at-place ?p)
-        (at-object ?o ?p)
-        (in-region ?r ?p)
-
-        (holding ?o - dsg_object)
-        (hand-full)
         (object-in-place ?o - dsg_object ?p - place)
         (place-in-region ?p - place ?r - region)
+        (connected ?s - place ?t - place)
+
+        (at-poi ?p - place)
+        (at-place ?p - place)
+        (at-object ?o - dsg_object)
+        (in-region ?r - region)
 
         (visited-place ?p - place)
         (visited-object ?o - dsg_object)
         (visited-region ?r - region)
 
-        (safe ?o)
+        (hand-full)
+        (holding ?o - dsg_object)
+
+        (suspicious ?o - dsg_object)
+        (safe ?o - dsg_object)
     )
 
     (:functions
@@ -32,11 +33,11 @@
     (:derived (at-place ?p - place)
         (at-poi ?p))
 
-    (:derived (at-object ?o - dsg_object ?p - place)
-        (and (at-poi ?p) (object-in-place ?o ?p)))
+    (:derived (at-object ?o - dsg_object)
+        (exists (?p - place) (and (at-poi ?p) (object-in-place ?o ?p))))
 
-    (:derived (in-region ?r - region ?p - place)
-        (and (at-poi ?p) (place-in-region ?p ?r)))
+    (:derived (in-region ?r - region)
+        (exists (?p - place) (and (at-poi ?p) (place-in-region ?p ?r))))
 
     (:derived (visited-object ?o - dsg_object)
         (exists (?p - place) (and (visited-place ?p) (object-in-place ?o ?p))))
@@ -63,7 +64,7 @@
      :parameters (?o - dsg_object ?p - place)
      :precondition (and (not (hand-full))
                         (safe ?o)
-                        (at-object ?o ?p)
+                        (at-object ?o)
                         (object-in-place ?o ?p))
      :effect (and (holding ?o)
                   (hand-full)
@@ -78,7 +79,7 @@
 
     (:action inspect
      :parameters (?o - dsg_object ?p - place)
-     :precondition (at-object ?o ?p)
+     :precondition (at-object ?o)
      :effect (and (not (suspicious ?o))
                   (increase (total-cost) 1)
             )

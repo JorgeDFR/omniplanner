@@ -17,6 +17,32 @@ def extract_facts(goal, predicate):
         case _:
             return ()
 
+def extract_negated_facts(goal, predicate, negated=False):
+    match goal:
+        case tuple() | list():
+            if len(goal) == 0:
+                return ()
+
+            head = goal[0]
+
+            # If we hit a NOT, flip the negation context
+            if head == "not" and len(goal) > 1:
+                return extract_negated_facts(goal[1], predicate, not negated)
+
+            # If this is the predicate and we're under negation → collect it
+            elif head == predicate and negated:
+                return (goal,)
+
+            # Otherwise recurse into children
+            else:
+                children = (
+                    extract_negated_facts(g, predicate, negated)
+                    for g in goal
+                )
+                return reduce(lambda x, y: x + y, children, ())
+
+        case _:
+            return ()
 
 def tokenize_lisp(string):
     return string.replace("\n", "").replace("(", "( ").replace(")", " )").split()

@@ -35,6 +35,13 @@ class LayerPlanner:
             v: dsg.get_node(v).attributes.position[:2] for v in self.node_ids
         }
 
+        self.symbol_to_node_value = {
+            dsg.get_node(v).id.str(True).lower(): v for v in self.node_ids
+        }
+        self.node_value_to_symbol = {
+            v: dsg.get_node(v).id.str(True).lower() for v in self.node_ids
+        }
+
         if precompute_shortest_paths:
             self.stored_shortest_path_lengths = dict(
                 nx.all_pairs_dijkstra_path_length(self.nx_layer)
@@ -44,19 +51,47 @@ class LayerPlanner:
             self.stored_shortest_path_lengths = None
             self.stored_shortest_path = None
 
-    def get_shortest_distance(self, s, t):
-        if self.stored_shortest_path_lengths is None:
+    def _get_filtered_graph(self, forbidden_nodes):
+        if not forbidden_nodes:
+            return self.nx_layer
+
+        forbidden_nodes = set(forbidden_nodes)
+
+        return nx.subgraph_view(
+            self.nx_layer,
+            filter_node=lambda n: n not in forbidden_nodes,
+        )
+
+    def get_shortest_distance(self, s, t, forbidden_nodes=None):
+        if forbidden_nodes:
+            if s in forbidden_nodes or t in forbidden_nodes:
+                return np.inf
+
+            G = self._get_filtered_graph(forbidden_nodes)
             try:
-                length = nx.shortest_path_length(self.nx_layer, s, t)
-            except nx.exception.NetworkXNoPath:
+                return nx.shortest_path_length(G, s, t)
+            except nx.NetworkXNoPath:
+                logger.warning(f"No connection (filtered) between {s} and {t}")
+                return np.inf
+
+        elif self.stored_shortest_path_lengths is None:
+            try:
+                return nx.shortest_path_length(self.nx_layer, s, t)
+            except nx.NetworkXNoPath:
                 logger.warning(f"No connection in DSG between {s} and {t}")
-                length = np.inf
-            return length
+                return np.inf
         else:
             return self.stored_shortest_path_lengths[s][t]
 
-    def get_shortest_path(self, s, t):
-        if self.stored_shortest_path is None:
+    def get_shortest_path(self, s, t, forbidden_nodes=None):
+        if forbidden_nodes:
+            if s in forbidden_nodes or t in forbidden_nodes:
+                raise nx.NetworkXNoPath(f"{s} or {t} is forbidden")
+
+            G = self._get_filtered_graph(forbidden_nodes)
+            return nx.shortest_path(G, s, t)
+
+        elif self.stored_shortest_path is None:
             return nx.shortest_path(self.nx_layer, s, t)
         else:
             return self.stored_shortest_path[s][t]

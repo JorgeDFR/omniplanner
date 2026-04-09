@@ -1,9 +1,8 @@
 from dataclasses import dataclass
 from importlib.resources import as_file, files
 
+import random
 import numpy as np
-import matplotlib.cm as cm
-import matplotlib.pyplot as plt
 
 import spark_dsg
 import dsg_pddl.domains
@@ -167,117 +166,163 @@ def build_test_dsg():
     return G
 
 
-def visualize_plan(collected_plan, DSG, show_objects=True):
+def cluster_regions(mesh_nodes, num_regions, iterations=5, seed=None):
     """
-    Visualize a robot plan over the entire DSG graph.
+    Perform simple K-means clustering over mesh node positions.
 
-    Args:
-        collected_plan: ActionSequence object (e.g., collected_plans['euclid'])
-        DSG: spark_dsg.DynamicSceneGraph
-        show_objects: Whether to plot pick/place actions
+    mesh_nodes: dict[(r,c)] -> node_symbol
+    returns: dict[node_symbol] -> region_id
     """
-    actions = collected_plan.actions
 
-    # --- 1. Print actions ---
-    print("\n==== Action Sequence ====")
-    for i, act in enumerate(actions):
-        if act.__class__.__name__ == "Follow":
-            print(f"{i+1}: Move along path until {act.path2d[-1][:2]}")
-        elif act.__class__.__name__ == "Pick":
-            print(f"{i+1}: Pick object '{act.object_id}' at {act.object_point[:2]}")
-        elif act.__class__.__name__ == "Place":
-            print(f"{i+1}: Place object '{act.object_id}' at {act.object_point[:2]}")
-        else:
-            print(f"{i+1}: {act}")
+    if seed is not None:
+        random.seed(seed)
+        np.random.seed(seed)
 
-    # --- 2. Plot DSG graph ---
-    plt.figure(figsize=(12, 10))
-    plt.title("Robot Plan on DSG Graph")
-    plt.xlabel("X")
-    plt.ylabel("Y")
+    # Convert mesh nodes to list with positions
+    node_list = []
+    for (r, c), symbol in mesh_nodes.items():
+        pos = np.array([c, r])  # (x, y)
+        node_list.append((symbol, pos))
 
-    # --- Plot Places Layer nodes/edges ---
-    try:
-        places_layer = DSG.get_layer(spark_dsg.DsgLayers.MESH_PLACES)
-    except Exception:
-        places_layer = DSG.get_layer(20)
+    # -----------------------------
+    # 1. Initialize random centers
+    # -----------------------------
+    initial = random.sample(node_list, num_regions)
+    centers = [pos.copy() for (_, pos) in initial]
 
-    node_positions = []
-    for node in places_layer.nodes:
-        pos = node.attributes.position[:2]
-        node_positions.append(pos)
-        plt.text(pos[0]+0.2, pos[1]+0.2, node.id, fontsize=6, color="black")
-    node_positions = np.array(node_positions)
-    if len(node_positions) > 0:
-        plt.scatter(node_positions[:, 0], node_positions[:, 1],
-                    label="DSG (Places)", c="black", s=50, alpha=0.6)
+    # -----------------------------
+    # 2. Iterate K-means
+    # -----------------------------
+    for _ in range(iterations):
+        clusters = {i: [] for i in range(num_regions)}
 
-    for src_node in places_layer.nodes:
-        src_pos = src_node.attributes.position[:2]
-        for neighbor in src_node.siblings():
-            dst_node = DSG.get_node(neighbor)
-            dst_pos = dst_node.attributes.position[:2]
-            plt.plot([src_pos[0], dst_pos[0]], [src_pos[1], dst_pos[1]], 'gray', alpha=0.3)
+        # Assignment step
+        for symbol, pos in node_list:
+            distances = [np.linalg.norm(pos - c) for c in centers]
+            cluster_id = int(np.argmin(distances))
+            clusters[cluster_id].append((symbol, pos))
 
-    # --- Plot Objects Layer nodes ---
-    objects_layer = DSG.get_layer(spark_dsg.DsgLayers.OBJECTS)
-    node_positions = []
-    for node in objects_layer.nodes:
-        pos = node.attributes.position[:2]
-        node_positions.append(pos)
-        plt.text(pos[0]+0.2, pos[1]+0.2, node.id, fontsize=6, color="black")
-    node_positions = np.array(node_positions)
-    if len(node_positions) > 0:
-        plt.scatter(node_positions[:, 0], node_positions[:, 1],
-                    label="DSG (Objects)", c="blue", marker='^', s=50, alpha=0.6)
+        # Update step
+        for i in range(num_regions):
+            if len(clusters[i]) > 0:
+                positions = np.array([p for (_, p) in clusters[i]])
+                centers[i] = positions.mean(axis=0)
 
-    # --- Plot Regions Layer nodes ---
-    regions_layer = DSG.get_layer(spark_dsg.DsgLayers.ROOMS)
-    spark_dsg.add_bounding_boxes_to_layer(DSG, spark_dsg.DsgLayers.ROOMS)
-    added_region_label = False
-    for node in regions_layer.nodes:
-        center = node.attributes.bounding_box.world_P_center[:2]
-        bb_min = node.attributes.bounding_box.min[:2]
-        bb_dim = node.attributes.bounding_box.dimensions[:2]
-        plt.text(center[0]+0.2, center[1]+0.2, node.id, fontsize=8, color="black")
-        label = "DSG (Regions)" if not added_region_label else None
-        rect = plt.Rectangle(bb_min, bb_dim[0], bb_dim[1],
-                            fill=False, edgecolor='black', linewidth=1.5,
-                            alpha=0.5, label=label)
-        plt.gca().add_patch(rect)
-        added_region_label = True
+    # -----------------------------
+    # 3. Final assignment
+    # -----------------------------
+    assignment = {}
+    for i in range(num_regions):
+        for symbol, _ in clusters[i]:
+            assignment[symbol] = i
 
-    # --- 3. Plot robot path with colored segments ---
-    cmap = cm.get_cmap('tab10')  # color map for different segments
-    segment_idx = 0
+    return assignment, centers
 
-    # Keep track of robot start position
-    robot_start = None
-    for act in actions:
-        if act.__class__.__name__ == "Follow":
-            path = np.array(act.path2d)
-            if robot_start is None:
-                robot_start = path[0]  # first point of the first Follow
-                plt.scatter(robot_start[0], robot_start[1], c='blue', s=120, marker='*', label="Start")
-            color = cmap(segment_idx % 10)
-            plt.plot(path[:, 0], path[:, 1], '-o', color=color,
-                     label=f"Segment {segment_idx+1}")
-            segment_idx += 1
-        elif show_objects and act.__class__.__name__ in ["Pick", "Place"]:
-            obj_pos = np.array(act.object_point[:2])
-            plt.scatter(obj_pos[0], obj_pos[1],
-                        c='red' if act.__class__.__name__=="Pick" else 'green',
-                        marker='s', s=100,
-                        label=f"{act.__class__.__name__} '{act.object_id}'"
-                        if f"{act.__class__.__name__} '{act.object_id}'" not in plt.gca().get_legend_handles_labels()[1] else "")
-            plt.text(obj_pos[0]+0.2, obj_pos[1]+0.2, f"{act.object_id}", fontsize=8)
 
-    plt.axis('equal')
-    x_min, x_max = plt.xlim()
-    x_range = x_max - x_min
-    plt.xlim(x_min, x_max + 0.2 * x_range)
+def build_scalable_dsg(
+    grid_rows=10, grid_cols=10, cell_size=1.0,
+    num_objects=20, num_regions=2,
+    seed=None,
+):
+    """
+    Build a scalable Dynamic Scene Graph using:
+    - Mesh places arranged in a grid
+    - Objects sampled near mesh nodes
+    - Regions defined as partitions of the grid
+    """
 
-    plt.legend(loc='upper right')
-    plt.grid(True)
-    plt.tight_layout()
-    plt.show()
+    G = spark_dsg.DynamicSceneGraph()
+    G.add_layer(2, "O", spark_dsg.DsgLayers.OBJECTS)
+    G.add_layer(3, "P", spark_dsg.DsgLayers.MESH_PLACES)
+    G.add_layer(4, "R", spark_dsg.DsgLayers.ROOMS)
+
+    if seed is not None:
+        random.seed(seed)
+        np.random.seed(seed)
+
+    # -----------------------------
+    # 1. Create Mesh Places (grid)
+    # -----------------------------
+    mesh_nodes = {}
+    node_id = 0
+    for r in range(grid_rows):
+        for c in range(grid_cols):
+            attr = spark_dsg.PlaceNodeAttributes()
+            attr.position = np.array([c * cell_size, r * cell_size, 0.0])
+            attr.semantic_label = 4  # ground
+
+            symbol = spark_dsg.NodeSymbol("P", node_id).value
+            G.add_node(spark_dsg.DsgLayers.MESH_PLACES, symbol, attr)
+
+            mesh_nodes[(r, c)] = symbol
+            node_id += 1
+
+    # -----------------------------
+    # 2. Connect Mesh Places (grid edges)
+    # -----------------------------
+    for r in range(grid_rows):
+        for c in range(grid_cols):
+            current = mesh_nodes[(r, c)]
+
+            # Right neighbor
+            if c + 1 < grid_cols:
+                G.insert_edge(current, mesh_nodes[(r, c + 1)])
+
+            # Down neighbor
+            if r + 1 < grid_rows:
+                G.insert_edge(current, mesh_nodes[(r + 1, c)])
+
+    # -----------------------------
+    # 3. Create Objects
+    # -----------------------------
+    object_nodes = []
+    for i in range(num_objects):
+        # sample a random grid cell
+        r = random.randint(0, grid_rows - 1)
+        c = random.randint(0, grid_cols - 1)
+
+        base_pos = np.array([c * cell_size, r * cell_size, 0.0])
+
+        # small random offset (to be "near" mesh node)
+        offset = np.random.uniform(-0.3, 0.3, size=3)
+        offset[2] = 0  # keep planar
+
+        attr = spark_dsg.ObjectNodeAttributes()
+        attr.position = base_pos + offset
+        attr.semantic_label = random.randint(30, 40)  # random object class
+
+        symbol = spark_dsg.NodeSymbol("O", i).value
+        G.add_node(spark_dsg.DsgLayers.OBJECTS, symbol, attr)
+
+        # connect to nearest mesh node
+        nearest_mesh = mesh_nodes[(r, c)]
+        G.insert_edge(nearest_mesh, symbol)
+
+        object_nodes.append((symbol, r, c))
+
+    # -----------------------------
+    # 4. Create Regions (grid partitions)
+    # -----------------------------
+    region_nodes = []
+    for region_id in range(num_regions):
+        attr = spark_dsg.RoomNodeAttributes()
+        attr.position = np.array([0, 0, 0])
+        attr.semantic_label = region_id
+
+        symbol = spark_dsg.NodeSymbol("R", region_id).value
+        G.add_node(spark_dsg.DsgLayers.ROOMS, symbol, attr)
+        region_nodes.append(symbol)
+
+    # Cluster mesh nodes
+    mesh_to_region, centroids = cluster_regions(mesh_nodes, num_regions, seed=seed)
+
+    # Update region node position
+    for region_id, centroid in zip(range(num_regions), centroids):
+        node = G.get_node(region_nodes[region_id])
+        node.attributes.position = np.array([centroid[0], centroid[1], 0.0])
+
+    # Assign mesh nodes to regions
+    for mesh_symbol, region_id in mesh_to_region.items():
+        G.insert_edge(region_nodes[region_id], mesh_symbol)
+
+    return G
