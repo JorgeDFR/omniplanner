@@ -1,11 +1,12 @@
-from dataclasses import dataclass
-from importlib.resources import as_file, files
-
+import math
 import random
 import numpy as np
 
 import spark_dsg
 import dsg_pddl.domains
+
+from dataclasses import dataclass
+from importlib.resources import as_file, files
 
 
 def load_omniplanner_pddl_domain(domain_name):
@@ -166,143 +167,107 @@ def build_test_dsg():
     return G
 
 
-def cluster_regions(mesh_nodes, num_regions, iterations=5, seed=None):
-    """
-    Perform simple K-means clustering over mesh node positions.
-
-    mesh_nodes: dict[(r,c)] -> node_symbol
-    returns: dict[node_symbol] -> region_id
-    """
-
+def build_scalable_dsg(
+    num_nodes=100,
+    valid_map_areas=[(0, 0, 10, 10)],
+    num_objects=20,
+    num_regions=2,
+    seed=None,
+):
     if seed is not None:
         random.seed(seed)
         np.random.seed(seed)
-
-    # Convert mesh nodes to list with positions
-    node_list = []
-    for (r, c), symbol in mesh_nodes.items():
-        pos = np.array([c, r])  # (x, y)
-        node_list.append((symbol, pos))
-
-    # -----------------------------
-    # 1. Initialize random centers
-    # -----------------------------
-    initial = random.sample(node_list, num_regions)
-    centers = [pos.copy() for (_, pos) in initial]
-
-    # -----------------------------
-    # 2. Iterate K-means
-    # -----------------------------
-    for _ in range(iterations):
-        clusters = {i: [] for i in range(num_regions)}
-
-        # Assignment step
-        for symbol, pos in node_list:
-            distances = [np.linalg.norm(pos - c) for c in centers]
-            cluster_id = int(np.argmin(distances))
-            clusters[cluster_id].append((symbol, pos))
-
-        # Update step
-        for i in range(num_regions):
-            if len(clusters[i]) > 0:
-                positions = np.array([p for (_, p) in clusters[i]])
-                centers[i] = positions.mean(axis=0)
-
-    # -----------------------------
-    # 3. Final assignment
-    # -----------------------------
-    assignment = {}
-    for i in range(num_regions):
-        for symbol, _ in clusters[i]:
-            assignment[symbol] = i
-
-    return assignment, centers
-
-
-def build_scalable_dsg(
-    grid_rows=10, grid_cols=10, cell_size=1.0,
-    num_objects=20, num_regions=2,
-    seed=None,
-):
-    """
-    Build a scalable Dynamic Scene Graph using:
-    - Mesh places arranged in a grid
-    - Objects sampled near mesh nodes
-    - Regions defined as partitions of the grid
-    """
 
     G = spark_dsg.DynamicSceneGraph()
     G.add_layer(2, "O", spark_dsg.DsgLayers.OBJECTS)
     G.add_layer(3, "P", spark_dsg.DsgLayers.MESH_PLACES)
     G.add_layer(4, "R", spark_dsg.DsgLayers.ROOMS)
 
-    if seed is not None:
-        random.seed(seed)
-        np.random.seed(seed)
+    # -------------------------------------------------
+    # Compute work bounds (bounding square)
+    # -------------------------------------------------
+    xmin = min(r[0] for r in valid_map_areas)
+    ymin = min(r[1] for r in valid_map_areas)
+    xmax = max(r[2] for r in valid_map_areas)
+    ymax = max(r[3] for r in valid_map_areas)
 
-    # -----------------------------
-    # 1. Create Mesh Places (grid)
-    # -----------------------------
-    mesh_nodes = {}
-    node_id = 0
-    for r in range(grid_rows):
-        for c in range(grid_cols):
-            attr = spark_dsg.PlaceNodeAttributes()
-            attr.position = np.array([c * cell_size, r * cell_size, 0.0])
-            attr.semantic_label = 4  # ground
+    side = max(xmax - xmin, ymax - ymin)
 
-            symbol = spark_dsg.NodeSymbol("P", node_id).value
-            G.add_node(spark_dsg.DsgLayers.MESH_PLACES, symbol, attr)
+    work_bounds = (xmin, ymin, xmin + side, ymin + side)
 
-            mesh_nodes[(r, c)] = symbol
-            node_id += 1
+    # -------------------------------------------------
+    # Compute density-based threshold
+    # -------------------------------------------------
+    valid_area = sum((r[2] - r[0]) * (r[3] - r[1]) for r in valid_map_areas)
+    min_dist = math.sqrt(valid_area / num_nodes)
+    edge_threshold = 1.5 * min_dist
 
-    # -----------------------------
-    # 2. Connect Mesh Places (grid edges)
-    # -----------------------------
-    for r in range(grid_rows):
-        for c in range(grid_cols):
-            current = mesh_nodes[(r, c)]
+    # -------------------------------------------------
+    # 1. Mesh Places (nodes)
+    # -------------------------------------------------
+    node_ids, positions = generate_valid_random_nodes(
+        num_nodes=num_nodes,
+        valid_map_areas=valid_map_areas,
+        work_bounds=work_bounds,
+        min_dist=min_dist,
+        seed=seed,
+    )
 
-            # Right neighbor
-            if c + 1 < grid_cols:
-                G.insert_edge(current, mesh_nodes[(r, c + 1)])
+    mesh_nodes = []
+    for i, pos in zip(node_ids, positions):
+        attr = spark_dsg.PlaceNodeAttributes()
+        attr.position = pos
+        attr.semantic_label = 4
 
-            # Down neighbor
-            if r + 1 < grid_rows:
-                G.insert_edge(current, mesh_nodes[(r + 1, c)])
+        symbol = spark_dsg.NodeSymbol("P", i).value
+        G.add_node(spark_dsg.DsgLayers.MESH_PLACES, symbol, attr)
 
-    # -----------------------------
-    # 3. Create Objects
-    # -----------------------------
+        mesh_nodes.append(symbol)
+
+    # -------------------------------------------------
+    # 2. Mesh Places (edges)
+    # -------------------------------------------------
+    for i in range(len(positions)):
+        for j in range(i + 1, len(positions)):
+            if np.linalg.norm(positions[i] - positions[j]) < edge_threshold:
+                G.insert_edge(mesh_nodes[i], mesh_nodes[j])
+
+    # -------------------------------------------------
+    # 3. Objects
+    # -------------------------------------------------
     object_nodes = []
-    for i in range(num_objects):
-        # sample a random grid cell
-        r = random.randint(0, grid_rows - 1)
-        c = random.randint(0, grid_cols - 1)
+    objects_data = []
+    for _ in range(num_objects):
+        # sample a mesh node (anchor)
+        node_idx = random.choice(range(len(mesh_nodes)))
+        base_pos = positions[node_idx]
 
-        base_pos = np.array([c * cell_size, r * cell_size, 0.0])
-
-        # small random offset (to be "near" mesh node)
+        # add small local offset
         offset = np.random.uniform(-0.3, 0.3, size=3)
-        offset[2] = 0  # keep planar
+        offset[2] = 0.0  # keep planar
+        obj_pos = base_pos + offset
+        semantic_label = random.randint(0, 50)
 
+        objects_data.append((obj_pos, node_idx, semantic_label))
+
+    # Sort objects spatially
+    objects_data.sort(key=lambda x: morton_code(x[0][0], x[0][1]))
+    for i, (obj_pos, node_idx, semantic_label) in enumerate(objects_data):
         attr = spark_dsg.ObjectNodeAttributes()
-        attr.position = base_pos + offset
-        attr.semantic_label = random.randint(30, 40)  # random object class
+        attr.position = obj_pos
+        attr.semantic_label = semantic_label
 
         symbol = spark_dsg.NodeSymbol("O", i).value
         G.add_node(spark_dsg.DsgLayers.OBJECTS, symbol, attr)
 
-        # connect to nearest mesh node
-        nearest_mesh = mesh_nodes[(r, c)]
-        G.insert_edge(nearest_mesh, symbol)
+        mesh_symbol = mesh_nodes[node_idx]
+        G.insert_edge(mesh_symbol, symbol)
 
-        object_nodes.append((symbol, r, c))
+        object_nodes.append(symbol)
 
-    # -----------------------------
-    # 4. Create Regions (grid partitions)
-    # -----------------------------
+    # -------------------------------------------------
+    # 4. Regions
+    # -------------------------------------------------
     region_nodes = []
     for region_id in range(num_regions):
         attr = spark_dsg.RoomNodeAttributes()
@@ -313,16 +278,167 @@ def build_scalable_dsg(
         G.add_node(spark_dsg.DsgLayers.ROOMS, symbol, attr)
         region_nodes.append(symbol)
 
-    # Cluster mesh nodes
-    mesh_to_region, centroids = cluster_regions(mesh_nodes, num_regions, seed=seed)
+    mesh_nodes_dict = {i: positions[i] for i in range(len(mesh_nodes))}
+    mesh_to_region, centroids = cluster_regions(mesh_nodes_dict, num_regions, seed=seed)
 
-    # Update region node position
     for region_id, centroid in zip(range(num_regions), centroids):
         node = G.get_node(region_nodes[region_id])
         node.attributes.position = np.array([centroid[0], centroid[1], 0.0])
 
-    # Assign mesh nodes to regions
-    for mesh_symbol, region_id in mesh_to_region.items():
-        G.insert_edge(region_nodes[region_id], mesh_symbol)
+    for mesh_idx, region_id in mesh_to_region.items():
+        G.insert_edge(region_nodes[region_id], mesh_nodes[mesh_idx])
 
     return G
+
+
+def generate_valid_random_nodes(
+    num_nodes,
+    valid_map_areas,
+    work_bounds,
+    min_dist,
+    seed=None,
+    max_attempts=None,
+):
+    """
+    Generates spatial nodes inside valid rectangular regions
+    with a minimum distance constraint.
+    """
+
+    if seed is not None:
+        random.seed(seed)
+        np.random.seed(seed)
+
+    (xmin, ymin, xmax, ymax) = work_bounds
+
+    def is_valid_point(x, y):
+        for (x0, y0, x1, y1) in valid_map_areas:
+            if x0 <= x <= x1 and y0 <= y <= y1:
+                return True
+        return False
+
+    nodes = []
+    positions = []
+
+    if max_attempts is None:
+        max_attempts = num_nodes * 50
+
+    attempts = 0
+    node_id = 0
+
+    while len(nodes) < num_nodes and attempts < max_attempts:
+        attempts += 1
+
+        x = random.uniform(xmin, xmax)
+        y = random.uniform(ymin, ymax)
+
+        if not is_valid_point(x, y):
+            continue
+
+        pos = np.array([x, y, 0.0])
+
+        # minimum distance constraint
+        if any(np.linalg.norm(pos - p) < min_dist for p in positions):
+            continue
+
+        nodes.append(node_id)
+        positions.append(pos)
+        node_id += 1
+
+    # Spatial sorting (bottom-left → top-right)
+    indexed_positions = list(enumerate(positions))
+    indexed_positions.sort(key=lambda x: morton_code(x[1][0], x[1][1]))
+
+    positions_sorted = []
+    for new_id, (old_id, pos) in enumerate(indexed_positions):
+        positions_sorted.append(pos)
+
+    nodes_sorted = list(range(len(positions)))
+
+    return nodes_sorted, positions_sorted
+
+
+def cluster_regions(mesh_nodes_dict, num_regions, iterations=5, seed=None):
+    """
+    K-means clustering over mesh node positions.
+
+    Args:
+        mesh_nodes_dict: dict[int -> np.ndarray([x,y])]
+        num_regions: number of clusters
+        iterations: k-means iterations
+        seed: randomness control
+
+    Returns:
+        assignment: dict[node_id] -> region_id
+        centers: list of cluster centroids
+    """
+
+    if seed is not None:
+        random.seed(seed)
+        np.random.seed(seed)
+
+    if len(mesh_nodes_dict) == 0 or num_regions <= 0:
+        return {}, []
+
+    # -----------------------------
+    # 1. Convert dict to aligned arrays
+    # -----------------------------
+    node_ids = list(mesh_nodes_dict.keys())
+    positions = np.array([mesh_nodes_dict[i] for i in node_ids])
+
+    n = len(node_ids)
+
+    # -----------------------------
+    # 2. Initialize centers randomly
+    # -----------------------------
+    init_indices = random.sample(range(n), min(num_regions, n))
+    centers = positions[init_indices].copy()
+
+    # pad if needed
+    while len(centers) < num_regions:
+        centers = np.vstack([centers, positions[random.randint(0, n - 1)]])
+
+    # -----------------------------
+    # 3. K-means iterations
+    # -----------------------------
+    clusters = None
+
+    for _ in range(iterations):
+        clusters = {i: [] for i in range(num_regions)}
+
+        # assignment step
+        for idx, pos in enumerate(positions):
+            dists = np.linalg.norm(centers - pos, axis=1)
+            cluster_id = int(np.argmin(dists))
+            clusters[cluster_id].append(idx)
+
+        # update step
+        for k in range(num_regions):
+            if clusters[k]:
+                centers[k] = positions[clusters[k]].mean(axis=0)
+
+    # -----------------------------
+    # 4. Build final mapping
+    # -----------------------------
+    assignment = {}
+
+    for region_id, idxs in clusters.items():
+        for idx in idxs:
+            node_id = node_ids[idx]
+            assignment[node_id] = region_id
+
+    return assignment, centers.tolist()
+
+
+def morton_code(x, y, scale=1000):
+    x = int(x * scale)
+    y = int(y * scale)
+
+    def part1by1(n):
+        n &= 0x0000ffff
+        n = (n | (n << 8)) & 0x00FF00FF
+        n = (n | (n << 4)) & 0x0F0F0F0F
+        n = (n | (n << 2)) & 0x33333333
+        n = (n | (n << 1)) & 0x55555555
+        return n
+
+    return part1by1(x) | (part1by1(y) << 1)

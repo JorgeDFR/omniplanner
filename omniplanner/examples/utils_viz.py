@@ -129,7 +129,7 @@ def visualize_dsg(
 
 def visualize_plan(
     collected_plan, DSG,
-    show_objects=True, show_regions=True, show_region_edges=False, show_text=True
+    show_objects=True, show_regions=True, show_region_edges=False, show_text=True, simplify_legend=False
 ):
     actions = collected_plan.actions
 
@@ -142,6 +142,8 @@ def visualize_plan(
             print(f"{i+1}: Move until {act.path2d[-1][:2]}")
         elif name in ["Pick", "Place"]:
             print(f"{i+1}: {name} '{act.object_id}' at {act.object_point[:2]}")
+        elif name in ["Gaze"]:
+            print(f"{i+1}: Inspect '{act.object_id}' at {act.gaze_point[:2]}")
         else:
             print(f"{i+1}: {act}")
 
@@ -169,7 +171,10 @@ def visualize_plan(
                             c='blue', s=120, marker='*', label="Start")
 
             color = cmap(segment_idx % 10)
-            plt.plot(path[:, 0], path[:, 1], '-o',
+            if simplify_legend:
+                plt.plot(path[:, 0], path[:, 1], '-o', color=color, linewidth=3.0)
+            else:
+                plt.plot(path[:, 0], path[:, 1], '-o',
                      color=color, linewidth=3.0, label=f"Segment {segment_idx+1}")
             segment_idx += 1
 

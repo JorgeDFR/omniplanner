@@ -22,6 +22,16 @@ def solve_pddl(problem: GroundedPddlProblem):
         with open(domain_fn, "w") as fo:
             fo.write(problem.domain.to_string())
 
+        # Complete Debug
+        debug_output_dir = os.getenv("DEBUG_OUTPUT_DIR", "")
+        debug_problem_fn = os.path.join(debug_output_dir, "problem.pddl")
+        debug_domain_fn = os.path.join(debug_output_dir, "domain.pddl")
+        debug_plan_fn = os.path.join(debug_output_dir, "plan.txt")
+        with open(debug_problem_fn, "w") as fo:
+            fo.write(problem.problem_str)
+        with open(debug_domain_fn, "w") as fo:
+            fo.write(problem.domain.to_string())
+
         command = [
             "fast-downward",
             "--plan-file", plan_fn,
@@ -52,14 +62,19 @@ def solve_pddl(problem: GroundedPddlProblem):
         else:
             output_dir = os.getenv("ADT4_OUTPUT_DIR", "")
             debug_fn = os.path.join(output_dir, "pddl_problem_debugging.pddl")
+            with open(debug_fn, "w") as fo:
+                fo.write(problem.problem_str)
+
             logger.warning(
                 f"Planning failed. Please see {debug_fn} for the failed problem file."
             )
-            with open(debug_fn, "w") as fo:
-                fo.write(problem.problem_str)
             raise Exception(
                 f"Planning failed, please see {debug_fn} for failed problem file."
             )
+
+        # Complete Debug
+        with open(debug_plan_fn, "w") as fo:
+            fo.writelines(lines)
 
     plan = [lisp_string_to_ast(line) for line in lines[:-1]]
     return plan

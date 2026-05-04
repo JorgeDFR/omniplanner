@@ -271,6 +271,23 @@ def generate_place_containment(G):
     return containments
 
 
+def generate_suspicious_objects(G):
+    suspicious_objects = []
+
+    for node in G.get_layer(spark_dsg.DsgLayers.OBJECTS).nodes:
+        # if not node.attributes.suspicious:
+        #     continue
+
+        if node.attributes.semantic_label in tuple(range(0, 40 + 1)):
+            continue
+
+        suspicious_objects.append(
+            ("suspicious", normalize_symbol(node.id.str(True)))
+        )
+
+    return suspicious_objects
+
+
 def generate_dense_init(G, symbols_of_interest, start_symbol):
     connectivity = generate_dense_symbol_connectivity(G, symbols_of_interest)
     connectivity_pddl = symbol_connectivity_to_pddl(connectivity)
@@ -558,6 +575,7 @@ def generate_test_pddl(G, raw_pddl_goal_string, initial_position):
 def generate_improved_places_init(G, symbols_of_interest, start_symbol, forbidden_symbols):
     object_containment_relations = generate_object_containment(G)
     place_containment_relations = generate_place_containment(G)
+    suspicious_objects = generate_suspicious_objects(G)
 
     symbols = extract_all_symbols(G)
     normalize_symbols(symbols)
@@ -622,6 +640,31 @@ def generate_improved_places_init(G, symbols_of_interest, start_symbol, forbidde
             pddl_symbol = symbol_lookup[normalize_symbol(place_symbol)]
             if pddl_symbol not in improved_symbols_of_interest:
                 improved_symbols_of_interest.append(pddl_symbol)
+
+    # Add to the symbols_of_interest all suspicious objects that are in the places (currently present in the symbols_of_interest)
+    containment_map = {}
+    for object_containment_relation in object_containment_relations:
+        object_symbol = normalize_symbol(object_containment_relation[1])
+        place_symbol = normalize_symbol(object_containment_relation[2])
+        containment_map[object_symbol] = place_symbol
+
+    relevant_suspicious_objects = []
+    relevant_unsafe_places = []
+    for suspicious_object in suspicious_objects:
+        sus_object_symbol = normalize_symbol(suspicious_object[1])
+        sus_object = symbol_lookup[sus_object_symbol]
+        place_symbol = containment_map[sus_object_symbol]
+        place = symbol_lookup[place_symbol]
+
+        if sus_object in improved_symbols_of_interest:
+            relevant_suspicious_objects.append(suspicious_object)
+            relevant_unsafe_places.append(("unsafe-place", place_symbol))
+            continue
+
+        if place in improved_symbols_of_interest:
+            improved_symbols_of_interest.append(sus_object)
+            relevant_suspicious_objects.append(suspicious_object)
+            relevant_unsafe_places.append(("unsafe-place", place_symbol))
 
     # Add to the symbols_of_interest all objects that are in the places (currently present in the symbols_of_interest)
     # for object_containment_relation in object_containment_relations:
@@ -693,6 +736,8 @@ def generate_improved_places_init(G, symbols_of_interest, start_symbol, forbidde
             containment_relations.append(place_containment_relation)
 
     initial_pddl += containment_relations
+    initial_pddl += relevant_suspicious_objects
+    initial_pddl += relevant_unsafe_places
 
     return initial_pddl, improved_symbols_of_interest
 
@@ -750,7 +795,7 @@ def generate_test_pddl_2(G, raw_pddl_goal_string, initial_position):
     normalize_symbols(forbidden_symbols["places"])
     normalize_symbols(forbidden_symbols["objects"])
     normalize_symbols(forbidden_symbols["regions"])
-    print(forbidden_symbols)
+
     start_place_symbol = PddlSymbol(
         "pstart", "place", ["at-poi"], position=initial_position
     )
