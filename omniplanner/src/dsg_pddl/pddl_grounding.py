@@ -24,6 +24,9 @@ class PddlSymbol:
     def __lt__(self, other):
         return self.symbol < other.symbol
 
+    def __hash__(self):
+        return hash(self.symbol)
+
 
 @dataclass
 class PddlProblem:

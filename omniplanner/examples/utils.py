@@ -1,5 +1,6 @@
 import math
 import random
+import logging
 import numpy as np
 
 import spark_dsg
@@ -7,11 +8,14 @@ import dsg_pddl.domains
 
 from dataclasses import dataclass
 from importlib.resources import as_file, files
+from typing import List, Dict, Set, Union, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 def load_omniplanner_pddl_domain(domain_name):
     with as_file(files(dsg_pddl.domains).joinpath(domain_name)) as path:
-        print(f"Loading domain {path}")
+        logger.info(f"Loading domain {path}")
         with open(str(path), "r") as fo:
             domain = fo.read()
     return domain
@@ -199,7 +203,7 @@ def build_scalable_dsg(
     # Compute density-based threshold
     # -------------------------------------------------
     valid_area = sum((r[2] - r[0]) * (r[3] - r[1]) for r in valid_map_areas)
-    min_dist = math.sqrt(valid_area / num_nodes)
+    min_dist = 0.8 * math.sqrt(valid_area / num_nodes)
     edge_threshold = 1.5 * min_dist
 
     # -------------------------------------------------
@@ -442,3 +446,98 @@ def morton_code(x, y, scale=1000):
         return n
 
     return part1by1(x) | (part1by1(y) << 1)
+
+
+class Predicate:
+    def __init__(self, name: str, arg_types: List[str], can_be_negated=False):
+        self.name = name
+        self.arg_types = arg_types
+        self.can_be_negated = can_be_negated
+
+def sample_object(symbols_by_type: Dict[str, List[str]], typ: str):
+    return random.choice(symbols_by_type[typ])
+
+def ground_predicate(pred: Predicate, symbols_by_type: Dict[str, List[str]]):
+    args = [sample_object(symbols_by_type, t) for t in pred.arg_types]
+    return f"({pred.name} {' '.join(args)})"
+
+def maybe_negate(pred: Predicate, literal: str, negation_prob=0.3):
+    if pred.can_be_negated and random.random() < negation_prob:
+        return f"(not {literal})"
+    return literal
+
+def generate_clause(predicates: List[Predicate],
+                    symbols_by_type: Dict[str, List[str]],
+                    K: int,
+                    max_positive_per_pred: Dict[Union[str, Tuple[str, ...]], int] = None):
+    """
+    Generate a single clause with rules:
+    - max_positive_per_pred: dict of predicate_name or tuple of predicate_names -> max positive literals
+    - avoid positive+negative conflicts
+    """
+    clause_literals: Set[str] = set()
+    positive_counts: Dict[str, int] = {}
+    group_counts: Dict[Tuple[str, ...], int] = {}
+
+    max_positive_per_pred = max_positive_per_pred or {}
+
+    attempts = 0
+    while len(clause_literals) < K:
+        if attempts > K * 20:  # avoid infinite loops
+            break
+        attempts += 1
+
+        pred = random.choice(predicates)
+        lit = ground_predicate(pred, symbols_by_type)
+        lit_negated = maybe_negate(pred, lit)
+
+        # Avoid contradictions in the same clause
+        if lit in clause_literals or f"(not {lit})" in clause_literals or lit_negated in clause_literals:
+            continue
+
+        # Only apply limits to positive literals
+        if not lit_negated.startswith("(not"):
+            # Check individual predicate max
+            count = positive_counts.get(pred.name, 0)
+            if pred.name in max_positive_per_pred and count >= max_positive_per_pred[pred.name]:
+                continue
+
+            # Check group limits
+            violated_group = False
+            for key in max_positive_per_pred:
+                if isinstance(key, tuple) and pred.name in key:
+                    group_count = group_counts.get(key, 0)
+                    if group_count >= max_positive_per_pred[key]:
+                        violated_group = True
+                        break
+            if violated_group:
+                continue
+
+            # Update counts
+            positive_counts[pred.name] = count + 1
+            for key in max_positive_per_pred:
+                if isinstance(key, tuple) and pred.name in key:
+                    group_counts[key] = group_counts.get(key, 0) + 1
+
+        clause_literals.add(lit_negated)
+
+    return f"(and {' '.join(clause_literals)})"
+
+def generate_dnf_goal(N: int,
+                      K: int,
+                      predicates: List[Predicate],
+                      symbols_by_type: Dict[str, List[str]],
+                      max_positive_per_pred: Dict[Union[str, Tuple[str, ...]], int] = None,
+                      seed: int = None) -> str:
+    if seed is not None:
+        random.seed(seed)
+
+    clauses = []
+    for _ in range(N):
+        clause = generate_clause(predicates, symbols_by_type, K, max_positive_per_pred)
+        clauses.append(clause)
+
+    if N == 1:
+        return clauses[0]
+
+    return f"(or {' '.join(clauses)})"

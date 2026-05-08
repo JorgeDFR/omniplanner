@@ -327,8 +327,8 @@ def extract_symbols_of_interest(G, pddl_goal):
     return place_symbols + object_symbols
 
 
-def simplify(pddl):
-    return pddl
+def simplify(pddl_goal):
+    return pddl_goal
 
 
 def add_symbol_positions(G, symbols):
@@ -757,27 +757,27 @@ def extract_goal_symbols(pddl_goal):
     region_facts = extract_facts(pddl_goal, "in-region")
     region_facts += extract_facts(pddl_goal, "visited-region")
 
-    place_symbols = [PddlSymbol(f[1], "place", []) for f in place_facts]
-    place_symbols += [PddlSymbol(f[2], "place", []) for f in place_facts_extra]
-    object_symbols = [PddlSymbol(f[1], "object", []) for f in object_facts]
-    region_symbols = [PddlSymbol(f[1], "region", []) for f in region_facts]
+    place_symbols = {PddlSymbol(f[1], "place", []) for f in place_facts}
+    place_symbols |= {PddlSymbol(f[2], "place", []) for f in place_facts_extra}
+    object_symbols = {PddlSymbol(f[1], "object", []) for f in object_facts}
+    region_symbols = {PddlSymbol(f[1], "region", []) for f in region_facts}
 
-    goal_symbols = place_symbols + object_symbols + region_symbols
+    goal_symbols = place_symbols | object_symbols | region_symbols
 
     forbidden_place_facts = extract_negated_facts(pddl_goal, "visited-place")
     forbidden_object_facts = extract_negated_facts(pddl_goal, "visited-object")
     forbidden_region_facts = extract_negated_facts(pddl_goal, "visited-region")
 
-    forbidden_place_symbols = [PddlSymbol(f[1], "place", []) for f in forbidden_place_facts]
-    forbidden_object_symbols = [PddlSymbol(f[1], "object", []) for f in forbidden_object_facts]
-    forbidden_region_symbols = [PddlSymbol(f[1], "region", []) for f in forbidden_region_facts]
+    forbidden_place_symbols = {PddlSymbol(f[1], "place", []) for f in forbidden_place_facts}
+    forbidden_object_symbols = {PddlSymbol(f[1], "object", []) for f in forbidden_object_facts}
+    forbidden_region_symbols = {PddlSymbol(f[1], "region", []) for f in forbidden_region_facts}
 
     return (
-        goal_symbols,
+        list(goal_symbols),
         {
-            "places": forbidden_place_symbols,
-            "objects": forbidden_object_symbols,
-            "regions": forbidden_region_symbols,
+            "places": list(forbidden_place_symbols),
+            "objects": list(forbidden_object_symbols),
+            "regions": list(forbidden_region_symbols),
         }
     )
 
