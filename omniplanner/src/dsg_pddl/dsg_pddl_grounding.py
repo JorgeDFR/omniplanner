@@ -1,12 +1,9 @@
 import logging
 from typing import Any
 
-import copy
 import spark_dsg
 import numpy as np
-import networkx as nx
 from plum import dispatch
-from itertools import combinations
 
 from dsg_pddl.pddl_grounding import (
     GroundedPddlProblem,
@@ -15,7 +12,11 @@ from dsg_pddl.pddl_grounding import (
     PddlProblem,
     PddlSymbol,
 )
-from dsg_pddl.pddl_utils import extract_facts, extract_negated_facts, lisp_string_to_ast, pddl_char_to_dsg_char
+from dsg_pddl.pddl_utils import (
+    extract_facts,
+    lisp_string_to_ast,
+    pddl_char_to_dsg_char
+)
 from omniplanner.omniplanner import RobotWrapper
 from omniplanner.tsp import LayerPlanner
 
@@ -271,23 +272,6 @@ def generate_place_containment(G):
     return containments
 
 
-def generate_suspicious_objects(G):
-    suspicious_objects = []
-
-    for node in G.get_layer(spark_dsg.DsgLayers.OBJECTS).nodes:
-        # if not node.attributes.suspicious:
-        #     continue
-
-        if node.attributes.semantic_label in tuple(range(0, 40 + 1)):
-            continue
-
-        suspicious_objects.append(
-            ("suspicious", normalize_symbol(node.id.str(True)))
-        )
-
-    return suspicious_objects
-
-
 def generate_dense_init(G, symbols_of_interest, start_symbol):
     connectivity = generate_dense_symbol_connectivity(G, symbols_of_interest)
     connectivity_pddl = symbol_connectivity_to_pddl(connectivity)
@@ -495,362 +479,36 @@ def generate_region_pddl(G, raw_pddl_goal_string, initial_position):
     return problem.to_string(), symbols
 
 
-# --------------------------------------------------------------------------- #
-# ---------------------------------- DEVEL ---------------------------------- #
-# --------------------------------------------------------------------------- #
-def generate_dense_places_init(G, symbols_of_interest, start_symbol):
-    connectivity = generate_dense_places_symbol_connectivity(G, symbols_of_interest)
-    connectivity_pddl = symbol_connectivity_to_pddl(connectivity)
-
-    initial_pddl = [("=", ("total-cost",), 0), ("at-poi", start_symbol.symbol)]
-    initial_pddl += connectivity_pddl
-
-    containment_relations = generate_object_containment(G)
-    containment_relations += generate_place_containment(G)
-    initial_pddl += containment_relations
-
-    return initial_pddl
-
-def generate_dense_places_symbol_connectivity(G, symbols):
-    symbol_lookup = {s.symbol: s for s in symbols}
-
-    try:
-        places_layer = G.get_layer(spark_dsg.DsgLayers.MESH_PLACES)
-    except Exception:
-        places_layer = G.get_layer(20)
-
-    edges = []
-
-    # Place <-> Place Edges
-    edges += explicit_edges_from_layer(symbol_lookup, G, places_layer)
-    layer_planner = LayerPlanner(G, spark_dsg.DsgLayers.MESH_PLACES)
-
-    # Connection between starting place and other symbols
-    start_symbol = symbol_lookup["pstart"]
-    start_position = start_symbol.position
-    start_connection_threshold = 3
-    for s in symbols:
-        if s.symbol == "pstart":
-            continue
-
-        d = layer_planner.get_external_distance(start_position, s.position)
-        if d < start_connection_threshold:
-            edges.append((start_symbol, s, d))
-
-    return edges
-
-def generate_test_pddl(G, raw_pddl_goal_string, initial_position):
-    problem_name = "test-domain"
-    problem_domain = "test-domain"
-
-    parsed_pddl_goal = lisp_string_to_ast(raw_pddl_goal_string)
-
-    # ideally we check the goal here and see if we can run a more specialized planner based on the simplified goal
-    goal_pddl = simplify(parsed_pddl_goal)
-
-    all_symbols = extract_all_symbols(G)
-    normalize_symbols(all_symbols)
-
-    start_place_symbol = PddlSymbol(
-        "pstart", "place", ["at-poi"], position=initial_position
-    )
-    symbols = [start_place_symbol] + all_symbols
-
-    add_symbol_positions(G, symbols)
-
-    pddl_objects = generate_objects(symbols)
-    init = generate_dense_places_init(G, symbols, start_place_symbol)
-
-    problem = PddlProblem(
-        name=problem_name,
-        domain=problem_domain,
-        objects=pddl_objects,
-        initial_facts=init,
-        goal=goal_pddl,
-        optimizing=True,
-    )
-
-    return problem.to_string(), symbols
-
-def generate_improved_places_init(G, symbols_of_interest, start_symbol, forbidden_symbols):
-    object_containment_relations = generate_object_containment(G)
-    place_containment_relations = generate_place_containment(G)
-    suspicious_objects = generate_suspicious_objects(G)
-
-    symbols = extract_all_symbols(G)
-    normalize_symbols(symbols)
-    symbol_lookup = {s.symbol: s for s in symbols}
-
-    try:
-        places_layer = G.get_layer(spark_dsg.DsgLayers.MESH_PLACES)
-    except Exception:
-        places_layer = G.get_layer(20)
-
-    # Add to the symbols_of_interest the places were each object (currently present in the symbols_of_interest) is located
-    for object_containment_relation in object_containment_relations:
-        object_symbol = symbol_lookup[normalize_symbol(object_containment_relation[1])]
-        place_symbol = symbol_lookup[normalize_symbol(object_containment_relation[2])]
-        if object_symbol in symbols_of_interest and place_symbol not in symbols_of_interest:
-            symbols_of_interest.append(place_symbol)
-
-        if object_symbol in forbidden_symbols["objects"] and place_symbol not in forbidden_symbols["places"]:
-            forbidden_symbols["places"].append(place_symbol)
-
-    # Add to the symbols_of_interest all places belonging to the regions in the symbols_of_interest
-    for place_containment_relation in place_containment_relations:
-        place_symbol = symbol_lookup[normalize_symbol(place_containment_relation[1])]
-        region_symbol = symbol_lookup[normalize_symbol(place_containment_relation[2])]
-        if region_symbol in symbols_of_interest and place_symbol not in symbols_of_interest:
-            symbols_of_interest.append(place_symbol)
-
-        if region_symbol in forbidden_symbols["regions"] and place_symbol not in forbidden_symbols["places"]:
-            forbidden_symbols["places"].append(place_symbol)
-
-    # Add to the symbols_of_interest the place closest to the starting position
-    layer_planner = LayerPlanner(G, spark_dsg.DsgLayers.MESH_PLACES)
-    start_node = layer_planner.get_closest_node_id(start_symbol.position)
-    place_symbol = layer_planner.node_value_to_symbol[start_node]
-    pddl_symbol = symbol_lookup[normalize_symbol(place_symbol)]
-    if pddl_symbol not in symbols_of_interest:
-        symbols_of_interest.append(pddl_symbol)
-
-    # Add all places that are contained in the shortest path between each 2 places (currently present in the symbols_of_interest)
-    improved_symbols_of_interest = copy.deepcopy(symbols_of_interest)
-    forbidden_nodes = {
-        layer_planner.symbol_to_node_value[s.symbol]
-        for s in forbidden_symbols["places"]
-    }
-    for s1, s2 in combinations(symbols_of_interest, 2):
-        if s1.symbol == "pstart" or s2.symbol == "pstart":
-            continue
-
-        if s1.layer != "place" or s2.layer != "place":
-            continue
-
-        s = layer_planner.symbol_to_node_value[s1.symbol]
-        t = layer_planner.symbol_to_node_value[s2.symbol]
-
-        try:
-            path = layer_planner.get_shortest_path(s, t, forbidden_nodes)
-        except nx.NetworkXNoPath:
-            continue  # just ignore pairs with no path
-
-        for node in path:
-            place_symbol = layer_planner.node_value_to_symbol[node]
-            pddl_symbol = symbol_lookup[normalize_symbol(place_symbol)]
-            if pddl_symbol not in improved_symbols_of_interest:
-                improved_symbols_of_interest.append(pddl_symbol)
-
-    # Add to the symbols_of_interest all suspicious objects that are in the places (currently present in the symbols_of_interest)
-    containment_map = {}
-    for object_containment_relation in object_containment_relations:
-        object_symbol = normalize_symbol(object_containment_relation[1])
-        place_symbol = normalize_symbol(object_containment_relation[2])
-        containment_map[object_symbol] = place_symbol
-
-    relevant_suspicious_objects = []
-    relevant_unsafe_places = []
-    for suspicious_object in suspicious_objects:
-        sus_object_symbol = normalize_symbol(suspicious_object[1])
-        sus_object = symbol_lookup[sus_object_symbol]
-        place_symbol = containment_map[sus_object_symbol]
-        place = symbol_lookup[place_symbol]
-
-        if sus_object in improved_symbols_of_interest:
-            relevant_suspicious_objects.append(suspicious_object)
-            relevant_unsafe_places.append(("unsafe-place", place_symbol))
-            continue
-
-        if place in improved_symbols_of_interest:
-            improved_symbols_of_interest.append(sus_object)
-            relevant_suspicious_objects.append(suspicious_object)
-            relevant_unsafe_places.append(("unsafe-place", place_symbol))
-
-    # Add to the symbols_of_interest all objects that are in the places (currently present in the symbols_of_interest)
-    # for object_containment_relation in object_containment_relations:
-    #     object_symbol = symbol_lookup[normalize_symbol(object_containment_relation[1])]
-    #     place_symbol = symbol_lookup[normalize_symbol(object_containment_relation[2])]
-    #     if place_symbol in improved_symbols_of_interest and object_symbol not in improved_symbols_of_interest:
-    #         improved_symbols_of_interest.append(object_symbol)
-
-    # Add to the symbols_of_interest the regions were each place (currently present in the symbols_of_interest) is located
-    # for place_containment_relation in place_containment_relations:
-    #     place_symbol = symbol_lookup[normalize_symbol(place_containment_relation[1])]
-    #     region_symbol = symbol_lookup[normalize_symbol(place_containment_relation[2])]
-    #     if place_symbol in improved_symbols_of_interest and region_symbol not in improved_symbols_of_interest:
-    #         improved_symbols_of_interest.append(region_symbol)
-
-    add_symbol_positions(G, improved_symbols_of_interest)
-
-    edges = []
-
-    # Place <-> Place Edges
-    for node in places_layer.nodes:
-        if symbol_lookup[normalize_symbol(node.id.str(True))] not in improved_symbols_of_interest:
-            continue
-
-        p1 = node.attributes.position
-        normalized_symbol = symbol_lookup[normalize_symbol(node.id.str(True))]
-        for neighbor in node.siblings():
-            if node.id.value < neighbor:
-                continue
-
-            n = G.get_node(neighbor)
-            if symbol_lookup[normalize_symbol(n.id.str(True))] not in improved_symbols_of_interest:
-                continue
-
-            p2 = n.attributes.position
-            normalized_symbol2 = symbol_lookup[normalize_symbol(n.id.str(True))]
-            edges.append(
-                (normalized_symbol, normalized_symbol2, np.linalg.norm(p1 - p2))
-            )
-
-    # Connection between starting place and other symbols
-    start_position = start_symbol.position
-    start_connection_threshold = 3
-    for s in improved_symbols_of_interest:
-        if s.symbol == "pstart":
-            continue
-
-        d = layer_planner.get_external_distance(start_position, s.position)
-        if d < start_connection_threshold:
-            edges.append((start_symbol, s, d))
-
-    connectivity_pddl = symbol_connectivity_to_pddl(edges)
-
-    initial_pddl = [("=", ("total-cost",), 0), ("at-poi", start_symbol.symbol)]
-    initial_pddl += connectivity_pddl
-
-    # Consider only containment_relations between symbols_of_interest
-    containment_relations = []
-    for object_containment_relation in object_containment_relations:
-        object_symbol = symbol_lookup[normalize_symbol(object_containment_relation[1])]
-        place_symbol = symbol_lookup[normalize_symbol(object_containment_relation[2])]
-        if object_symbol in improved_symbols_of_interest and place_symbol in improved_symbols_of_interest:
-            containment_relations.append(object_containment_relation)
-
-    for place_containment_relation in place_containment_relations:
-        place_symbol = symbol_lookup[normalize_symbol(place_containment_relation[1])]
-        region_symbol = symbol_lookup[normalize_symbol(place_containment_relation[2])]
-        if place_symbol in improved_symbols_of_interest and region_symbol in improved_symbols_of_interest:
-            containment_relations.append(place_containment_relation)
-
-    initial_pddl += containment_relations
-    initial_pddl += relevant_suspicious_objects
-    initial_pddl += relevant_unsafe_places
-
-    return initial_pddl, improved_symbols_of_interest
-
-def extract_goal_symbols(pddl_goal):
-    place_facts = extract_facts(pddl_goal, "at-poi")
-    place_facts += extract_facts(pddl_goal, "at-place")
-    place_facts += extract_facts(pddl_goal, "visited-place")
-    place_facts_extra = extract_facts(pddl_goal, "object-in-place")
-
-    object_facts = extract_facts(pddl_goal, "at-object")
-    object_facts += extract_facts(pddl_goal, "visited-object")
-    object_facts += extract_facts(pddl_goal, "suspicious")
-    object_facts += extract_facts(pddl_goal, "holding")
-    object_facts += extract_facts(pddl_goal, "safe")
-    object_facts += extract_facts(pddl_goal, "object-in-place")
-
-    region_facts = extract_facts(pddl_goal, "in-region")
-    region_facts += extract_facts(pddl_goal, "visited-region")
-
-    place_symbols = {PddlSymbol(f[1], "place", []) for f in place_facts}
-    place_symbols |= {PddlSymbol(f[2], "place", []) for f in place_facts_extra}
-    object_symbols = {PddlSymbol(f[1], "object", []) for f in object_facts}
-    region_symbols = {PddlSymbol(f[1], "region", []) for f in region_facts}
-
-    goal_symbols = place_symbols | object_symbols | region_symbols
-
-    forbidden_place_facts = extract_negated_facts(pddl_goal, "visited-place")
-    forbidden_object_facts = extract_negated_facts(pddl_goal, "visited-object")
-    forbidden_region_facts = extract_negated_facts(pddl_goal, "visited-region")
-
-    forbidden_place_symbols = {PddlSymbol(f[1], "place", []) for f in forbidden_place_facts}
-    forbidden_object_symbols = {PddlSymbol(f[1], "object", []) for f in forbidden_object_facts}
-    forbidden_region_symbols = {PddlSymbol(f[1], "region", []) for f in forbidden_region_facts}
-
-    return (
-        list(goal_symbols),
-        {
-            "places": list(forbidden_place_symbols),
-            "objects": list(forbidden_object_symbols),
-            "regions": list(forbidden_region_symbols),
-        }
-    )
-
-def generate_test_pddl_2(G, raw_pddl_goal_string, initial_position):
-    problem_name = "test-domain"
-    problem_domain = "test-domain"
-
-    parsed_pddl_goal = lisp_string_to_ast(raw_pddl_goal_string)
-
-    # ideally we check the goal here and see if we can run a more specialized planner based on the simplified goal
-    goal_pddl = simplify(parsed_pddl_goal)
-
-    goal_symbols, forbidden_symbols = extract_goal_symbols(goal_pddl)
-    normalize_symbols(goal_symbols)
-    normalize_symbols(forbidden_symbols["places"])
-    normalize_symbols(forbidden_symbols["objects"])
-    normalize_symbols(forbidden_symbols["regions"])
-
-    start_place_symbol = PddlSymbol(
-        "pstart", "place", ["at-poi"], position=initial_position
-    )
-    symbols_of_interest = [start_place_symbol] + goal_symbols
-
-    init, symbols = generate_improved_places_init(G, symbols_of_interest, start_place_symbol, forbidden_symbols)
-    pddl_objects = generate_objects(symbols)
-
-    problem = PddlProblem(
-        name=problem_name,
-        domain=problem_domain,
-        objects=pddl_objects,
-        initial_facts=init,
-        goal=goal_pddl,
-        optimizing=True,
-    )
-
-    return problem.to_string(), symbols
-# --------------------------------------------------------------------------- #
-# ---------------------------------- DEVEL ---------------------------------- #
-# --------------------------------------------------------------------------- #
-
-
-@dispatch
-def ground_problem(
-    domain: PddlDomain,
-    dsg: spark_dsg.DynamicSceneGraph,
-    robot_states: dict,
-    goal: PddlGoal,
-    feedback: Any = None,
-) -> RobotWrapper[GroundedPddlProblem]:
-    logger.info(f"Grounding PDDL Problem {domain.domain_name}")
-
-    start = robot_states[goal.robot_id][:2]
-
-    # TODO: TBD whether we want to check the domain here and choose how
-    # to instantiate the PDDL problem, or if that should be in a separately
-    # ground_problem function.
-    match domain.domain_name:
-        case "goto-object-domain":
-            pddl_problem, symbols = generate_inspection_pddl(dsg, goal.pddl_goal, start)
-        case "object-rearrangement-domain":
-            pddl_problem, symbols = generate_rearrangement_pddl(
-                dsg, goal.pddl_goal, start
-            )
-        case "region-object-rearrangement-domain":
-            pddl_problem, symbols = generate_region_pddl(dsg, goal.pddl_goal, start)
-        case "test-domain":
-            pddl_problem, symbols = generate_test_pddl_2(dsg, goal.pddl_goal, start)
-        case _:
-            raise NotImplementedError(
-                f"I don't know how to ground a domain of type {domain.domain_name}!"
-            )
-
-    symbol_dict = {s.symbol: s for s in symbols}
-    return RobotWrapper(
-        goal.robot_id, GroundedPddlProblem(domain, pddl_problem, symbol_dict)
-    )
+# @dispatch
+# def ground_problem(
+#     domain: PddlDomain,
+#     dsg: spark_dsg.DynamicSceneGraph,
+#     robot_states: dict,
+#     goal: PddlGoal,
+#     feedback: Any = None,
+# ) -> RobotWrapper[GroundedPddlProblem]:
+#     logger.info(f"Grounding PDDL Problem {domain.domain_name}")
+
+#     start = robot_states[goal.robot_id][:2]
+
+#     # TODO: TBD whether we want to check the domain here and choose how
+#     # to instantiate the PDDL problem, or if that should be in a separately
+#     # ground_problem function.
+#     match domain.domain_name:
+#         case "goto-object-domain":
+#             pddl_problem, symbols = generate_inspection_pddl(dsg, goal.pddl_goal, start)
+#         case "object-rearrangement-domain":
+#             pddl_problem, symbols = generate_rearrangement_pddl(
+#                 dsg, goal.pddl_goal, start
+#             )
+#         case "region-object-rearrangement-domain":
+#             pddl_problem, symbols = generate_region_pddl(dsg, goal.pddl_goal, start)
+#         case _:
+#             raise NotImplementedError(
+#                 f"I don't know how to ground a domain of type {domain.domain_name}!"
+#             )
+
+#     symbol_dict = {s.symbol: s for s in symbols}
+#     return RobotWrapper(
+#         goal.robot_id, GroundedPddlProblem(domain, pddl_problem, symbol_dict)
+#     )

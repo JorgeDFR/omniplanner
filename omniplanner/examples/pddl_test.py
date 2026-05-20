@@ -11,9 +11,12 @@ from omniplanner_ros.pddl_planner_ros import compile_plan
 from utils import (
     DummyRobotPlanningAdaptor, load_omniplanner_pddl_domain,
     build_scalable_dsg,
+    generate_building,
     Predicate, generate_dnf_goal
 )
 from utils_viz import visualize_plan, visualize_dsg
+
+import dsg_pddl.dsg_pddl_grounding_improved
 
 logging.basicConfig()
 logging.getLogger().setLevel(logging.WARN)
@@ -54,39 +57,48 @@ logging.getLogger().setLevel(logging.WARN)
 
 
 # Generate random 3D Scene Graph
+num_nodes = 400
+num_objects = 50
+num_regions = 6
+
+# valid_map_areas = generate_building(
+#     num_rooms=6,
+#     grid_size=(3, 2),
+#     seed=1
+# )
+
 G = build_scalable_dsg(
-    num_nodes=200,
-    #valid_map_areas=[(0, 0, 5, 15), (10, 0, 15, 15), (0, 5, 15, 10),],
-    valid_map_areas=[(0, 0, 20, 20)],
-    num_objects=50,
-    num_regions=4,
-    seed=123
+    num_nodes=num_nodes,
+    valid_map_areas=[(0, 0, 20, 20)], #valid_map_areas,
+    num_objects=num_objects,
+    num_regions=num_regions,
+    seed=1
 )
 #visualize_dsg(G, show_region_edges=False)
 
 # Generate random PDDL Goal
 predicates = [
     Predicate("at-poi", ["place"]),
-    Predicate("at-place", ["place"]),
     Predicate("at-object", ["dsg_object"]),
-    Predicate("in-region", ["region"]),
+    #Predicate("in-region", ["region"]),
     Predicate("holding", ["dsg_object"]),
-    #Predicate("safe", ["dsg_object"]),
+    Predicate("safe", ["dsg_object"]),
     Predicate("object-in-place", ["dsg_object", "place"]),
     Predicate("visited-place", ["place"], can_be_negated=True),
     Predicate("visited-object", ["dsg_object"], can_be_negated=True),
-    Predicate("visited-region", ["region"], can_be_negated=True),
+    #Predicate("visited-region", ["region"], can_be_negated=True),
 ]
 
 max_positive = {
     "holding": 1,
-    ("at-poi", "at-place", "at-object", "in-region"): 1,
+    "safe": 0,
+    ("at-poi", "at-object", "in-region"): 1,
 }
 
 symbols_by_type = {
-    "place": [f"p{i}" for i in range(200)],
-    "dsg_object": [f"o{i}" for i in range(50)],
-    "region": [f"r{i}" for i in range(4)],
+    "place": [f"p{i}" for i in range(num_nodes)],
+    "dsg_object": [f"o{i}" for i in range(num_objects)],
+    "region": [f"r{i}" for i in range(num_regions)],
 }
 
 pddl_goal = generate_dnf_goal(
@@ -94,23 +106,20 @@ pddl_goal = generate_dnf_goal(
     predicates=predicates,
     symbols_by_type=symbols_by_type,
     max_positive_per_pred=max_positive,
-    seed=124
+    seed=2
 )
 print(f"\nPDDL Goal: {pddl_goal}\n")
 
 adaptor = DummyRobotPlanningAdaptor("euclid", "spot", "map", "body")
 adaptors = {"euclid": adaptor}
+robot_poses = {"euclid": np.array([1.0, 1.0])}
+goal = PddlGoal(robot_id="euclid", pddl_goal=pddl_goal)
 
-robot_poses = {"euclid": np.array([0.1, 0.1])}
-
-goal = PddlGoal(
-    robot_id="euclid",
-    pddl_goal=pddl_goal
-    # pddl_goal="(and (at-poi p99) (object-in-place o4 p36) (not (visited-place p37)))",
-)
+# import sys
+# sys.exit()
 
 # Load the PDDL domain
-domain = PddlDomain(load_omniplanner_pddl_domain("Test_new.pddl"))
+domain = PddlDomain(load_omniplanner_pddl_domain("Test.pddl"))
 
 # Build the plan request
 req = PlanRequest(
@@ -119,10 +128,10 @@ req = PlanRequest(
     robot_states=robot_poses,
 )
 
-from dsg_pddl.dsg_pddl_grounding import generate_test_pddl_2
-_, symbols = generate_test_pddl_2(G, goal.pddl_goal, robot_poses[goal.robot_id][:2])
+from dsg_pddl.dsg_pddl_grounding_improved import generate_test_pddl_v2
+_, symbols = generate_test_pddl_v2(G, goal.pddl_goal, robot_poses[goal.robot_id][:2])
 simplified_symbols = [s.symbol for s in symbols]
-# visualize_dsg(G, nodes_to_show=simplified_symbols)
+visualize_dsg(G, nodes_to_show=simplified_symbols)
 
 start = time.perf_counter()
 plan = full_planning_pipeline(req, G)
@@ -131,8 +140,9 @@ print(f"\nPlanning took {end - start:.6f} seconds\n")
 
 collected_plans = collect_plans(compile_plan(adaptors, "map", plan))
 visualize_plan(collected_plans['euclid'], G,
-               #nodes_to_show=simplified_symbols,
-               simplify_legend=True)
+               nodes_to_show=simplified_symbols,
+               simplify_legend=True,
+               )
 
 # TODO:
 # - multi robot problems are not adressed

@@ -159,27 +159,34 @@ def _plot_dsg_base(
 def visualize_dsg(
     DSG,
     show_objects=True, show_regions=True, show_region_edges=False,
+    show_text=True,
     nodes_to_show=None
 ):
     _plot_dsg_base(DSG, title="DSG Graph",
                    draw_objects=show_objects,
                    draw_regions=show_regions,
                    draw_region_edges=show_region_edges,
+                   draw_text=show_text,
                    nodes_to_show=nodes_to_show)
 
-    plt.axis('equal')
-    x_min, x_max = plt.xlim()
-    plt.xlim(x_min, x_max + 0.2 * (x_max - x_min))
+    ax = plt.gca()
+    ax.set_aspect('equal', adjustable='box')
+    x_min, x_max = ax.get_xlim()
+    y_min, y_max = ax.get_ylim()
+    x_pad = 0.2 * (x_max - x_min)
+    ax.set_xlim(x_min, x_max + x_pad)
+    ax.set_ylim(y_min, y_max)
 
-    plt.legend(loc='upper right')
-    plt.grid(True)
+    ax.legend(loc='upper right')
+    ax.grid(True)
     plt.tight_layout()
     plt.show()
 
 
 def visualize_plan(
     collected_plan, DSG,
-    show_objects=True, show_regions=True, show_region_edges=False, show_text=True, simplify_legend=False,
+    show_objects=True, show_regions=True, show_region_edges=False,
+    show_text=True, simplify_legend=False,
     nodes_to_show=None
 ):
     actions = collected_plan.actions

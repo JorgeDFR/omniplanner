@@ -1,9 +1,11 @@
-import logging
+
 import os
-import subprocess
+import time
+import signal
+import logging
 import tempfile
 import threading
-import time
+import subprocess
 
 from dsg_pddl.pddl_grounding import GroundedPddlProblem
 from dsg_pddl.pddl_utils import lisp_string_to_ast
@@ -45,6 +47,7 @@ def _run_fd(problem, domain, search_cmd, timeout, result_container, key):
                 stderr=subprocess.PIPE,
                 text=True,
                 cwd=tmpdirname,
+                start_new_session=True,
             )
 
             stdout, stderr = proc.communicate(timeout=timeout)
@@ -59,7 +62,8 @@ def _run_fd(problem, domain, search_cmd, timeout, result_container, key):
                     logger.debug(f"{key} stderr: {stderr}")
 
         except subprocess.TimeoutExpired:
-            proc.kill()
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait()
             result_container[key] = None
             logger.debug(f"{key} timed out")
 
@@ -70,10 +74,10 @@ def solve_pddl(problem: GroundedPddlProblem):
     # -----------------------
     # Define planners
     # -----------------------
-    #optimal_search = "astar(lmcut())"
-    optimal_search = "astar(ff())"
-    #suboptimal_search = "let(hff, ff(), eager_wastar([hff], preferred=[hff], w=2))"
-    suboptimal_search = "let(hff, ff(), lazy_greedy([hff], preferred=[hff]))"
+    #optimal_search = f"astar(lmcut(), max_time={OPTIMAL_TIMEOUT})"
+    optimal_search = f"astar(ff(), max_time={OPTIMAL_TIMEOUT})"
+    #suboptimal_search = "let(hff, ff(), eager_wastar([hff], preferred=[hff], w=2, max_time={SUBOPTIMAL_TIMEOUT}))"
+    suboptimal_search = f"let(hff, ff(), lazy_greedy([hff], preferred=[hff], max_time={SUBOPTIMAL_TIMEOUT}))"
 
     # -----------------------
     # Threads

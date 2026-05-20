@@ -34,11 +34,11 @@
         :precondition
             (and
                 (at-poi ?s)
+                (not (unsafe-place ?t))
                 (or
                     (connected ?s ?t)
                     (connected ?t ?s)
                 )
-                (not (unsafe-place ?t))
             )
         :effect
             (and
@@ -46,14 +46,12 @@
                 (at-poi ?t)
                 (visited-place ?t)
                 (forall (?r - region)
-                    (when
-                        (place-in-region ?s ?r)
+                    (when (place-in-region ?s ?r)
                         (not (in-region ?r))
                     )
                 )
                 (forall (?r - region)
-                    (when
-                        (place-in-region ?t ?r)
+                    (when (place-in-region ?t ?r)
                         (and
                             (in-region ?r)
                             (visited-region ?r)
@@ -61,22 +59,19 @@
                     )
                 )
                 (forall (?o - dsg_object)
-                    (when
-                        (object-in-place ?o ?s)
+                    (when (object-in-place ?o ?s)
                         (not (at-object ?o))
                     )
                 )
                 (forall (?o - dsg_object)
-                    (when
-                        (object-in-place ?o ?t)
+                    (when (object-in-place ?o ?t)
                         (and
                             (at-object ?o)
                             (visited-object ?o)
                         )
                     )
                 )
-                (increase (total-cost)
-                          (distance ?s ?t))
+                (increase (total-cost) (distance ?s ?t))
             )
     )
 

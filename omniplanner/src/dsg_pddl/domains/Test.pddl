@@ -51,46 +51,76 @@
 
     (:action goto-poi
         :parameters (?s - place ?t - place)
-        :precondition (and (at-poi ?s)
-                           (or (connected ?s ?t)
-                               (connected ?t ?s))
-                           (not (unsafe-place ?t)))
-        :effect (and (not (at-poi ?s))
-                     (at-poi ?t)
-                     (visited-place ?t)
-                     (increase (total-cost) (distance ?s ?t)))
+        :precondition
+            (and
+                (at-poi ?s)
+                (not (unsafe-place ?t))
+                (or
+                    (connected ?s ?t)
+                    (connected ?t ?s)
+                )
+            )
+        :effect
+            (and
+                (not (at-poi ?s))
+                (at-poi ?t)
+                (visited-place ?t)
+                (increase (total-cost) (distance ?s ?t))
+            )
     )
 
     (:action pick-object
-     :parameters (?o - dsg_object ?p - place)
-     :precondition (and (not (hand-full))
-                        (safe ?o)
-                        (at-poi ?p)
-                        (object-in-place ?o ?p))
-     :effect (and (holding ?o)
-                  (hand-full)
-                  (not (object-in-place ?o ?p)))
+        :parameters (?o - dsg_object ?p - place)
+        :precondition
+            (and
+                (not (hand-full))
+                (safe ?o)
+                (at-poi ?p)
+                (object-in-place ?o ?p)
+            )
+        :effect
+            (and
+                (holding ?o)
+                (hand-full)
+                (not (object-in-place ?o ?p))
+                (increase (total-cost) 10)
+            )
     )
 
     (:action place-object
-     :parameters (?o - dsg_object ?p - place)
-     :precondition (and (holding ?o)
-                        (at-poi ?p))
-     :effect (and (not (holding ?o))
-                  (not (hand-full))
-                  (object-in-place ?o ?p))
+        :parameters (?o - dsg_object ?p - place)
+        :precondition
+            (and
+                (holding ?o)
+                (at-poi ?p)
+            )
+        :effect
+            (and
+                (not (holding ?o))
+                (not (hand-full))
+                (object-in-place ?o ?p)
+                (increase (total-cost) 10)
+            )
     )
 
     (:action inspect
-     :parameters (?o - dsg_object ?p - place ?t - place)
-     :precondition (and (suspicious ?o)
-                        (object-in-place ?o ?p)
-                        (at-place ?t)
-                        (or (connected ?p ?t)
-                            (connected ?t ?p)))
-     :effect (and (not (suspicious ?o))
-                  (not (unsafe-place ?p))
-                  (increase (total-cost) 10))
-    )
+        :parameters (?o - dsg_object ?p - place ?t - place)
+        :precondition
+            (and
+                (suspicious ?o)
+                (object-in-place ?o ?p)
+                (at-poi ?t)
+                (or
+                    (connected ?p ?t)
+                    (connected ?t ?p)
+                )
+            )
+        :effect
+            (and
+                (not (suspicious ?o))
+                (not (unsafe-place ?p))
+                (increase (total-cost) 10)
+            )
+        )
 
 )
