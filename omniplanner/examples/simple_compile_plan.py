@@ -3,11 +3,11 @@ from dataclasses import dataclass
 import numpy as np
 from plum import dispatch
 
-from dsg_pddl.dsg_pddl_planning import PddlPlan
+from dsg_pddl.planning.parameterization import PddlPlan
 from omniplanner.compile_plan import compile_plan
-from omniplanner.goto_points import GotoPointsPlan
-from omniplanner.omniplanner import MultiRobotWrapper, RobotWrapper, SymbolicContext
-from omniplanner.tsp import FollowPathPlan
+from omniplanner.domains.goto_points import GotoPointsPlan
+from omniplanner.core import MultiRobotWrapper, RobotWrapper, SymbolicContext
+from omniplanner.domains.tsp import FollowPathPlan
 
 
 @dataclass

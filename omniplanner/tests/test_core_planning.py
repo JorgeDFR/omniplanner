@@ -4,9 +4,10 @@ import numpy as np
 import pytest
 
 import omniplanner.compile_plan as compiler
-import omniplanner.language_planner as lang
-import omniplanner.omniplanner as core
-from omniplanner.goto_points import (
+import omniplanner.core as core
+import omniplanner.core.context as core_context
+import omniplanner.domains.language as lang
+from omniplanner.domains.goto_points import (
     GotoPointPrimitive,
     GotoPointsDomain,
     GotoPointsGoal,
@@ -15,7 +16,7 @@ from omniplanner.goto_points import (
     ground_problem as ground_goto,
     make_plan as make_goto_plan,
 )
-from omniplanner.language_planner import LanguageDomain, LanguageGoal
+from omniplanner.domains.language import LanguageDomain, LanguageGoal
 from omniplanner.utils import str_to_ns_value
 
 
@@ -31,9 +32,20 @@ class FakeCompiled:
     frame: str
 
 
+class ListBackedPlan(list):
+    pass
+
+
 @compiler.compile_plan.dispatch
 def compile_plan(adaptor: str, plan_frame: str, plan: FakePlan):
     return FakeCompiled(adaptor, plan.value, plan_frame)
+
+
+@compiler.compile_plan.dispatch
+def compile_list_backed_plan(
+    adaptor: str, plan_frame: str, plan: core.SymbolicContext[ListBackedPlan]
+):
+    return FakeCompiled(adaptor, len(plan.value), plan_frame)
 
 
 def test_robot_and_symbolic_wrappers_preserve_context_and_names():
@@ -100,8 +112,8 @@ def test_dsg_context_provider_merges_explicit_and_dsg_context():
         def get_labelspace(self, layer, partition):
             return Labelspace()
 
-    original = core.NodeSymbol
-    core.NodeSymbol = NodeSymbol
+    original = core_context.NodeSymbol
+    core_context.NodeSymbol = NodeSymbol
     try:
         provider = core.DsgContextProvider(Dsg())
         provider["manual"] = {"color": "blue"}
@@ -119,11 +131,11 @@ def test_dsg_context_provider_merges_explicit_and_dsg_context():
         with pytest.raises(TypeError):
             provider["bad"] = 1
     finally:
-        core.NodeSymbol = original
+        core_context.NodeSymbol = original
 
 
 def test_goto_points_grounding_and_plan_from_numpy_context(monkeypatch):
-    monkeypatch.setattr("omniplanner.goto_points.time.sleep", lambda _: None)
+    monkeypatch.setattr("omniplanner.domains.goto_points.time.sleep", lambda _: None)
     points = np.array([[0.0, 0.0], [1.0, 1.0], [2.0, 0.0]])
     start = np.array([-1.0, 0.0])
 
@@ -245,6 +257,19 @@ def test_compile_plan_multirobot_remaps_adaptors():
         core.RobotWrapper("spot", FakeCompiled("spot-adaptor", 9, "map")),
         {"Spot": "spot"},
         {"spot": "Spot"},
+    )
+
+
+def test_compile_plan_keeps_symbolic_context_for_list_backed_plan_type():
+    plan = core.SymbolicContext(
+        {"p1": {}},
+        core.RobotWrapper("spot", ListBackedPlan([1, 2, 3])),
+    )
+
+    compiled = compiler.compile_plan({"spot": "spot-adaptor"}, "map", plan)
+
+    assert compiled == core.RobotWrapper(
+        "spot", FakeCompiled("spot-adaptor", 3, "map")
     )
 
 

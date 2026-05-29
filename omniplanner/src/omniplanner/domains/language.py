@@ -2,11 +2,11 @@ import ast
 from dataclasses import dataclass
 from typing import Any
 
-from dsg_pddl.pddl_grounding import PddlDomain, PddlGoal
+from dsg_pddl.core.models import PddlDomain, PddlGoal
 from nlu_interface.llm_interface import LLMInterface
 from plum import dispatch
 
-from omniplanner.goto_points import GotoPointsDomain, GotoPointsGoal
+from omniplanner.domains.goto_points import GotoPointsDomain, GotoPointsGoal
 
 
 @dataclass

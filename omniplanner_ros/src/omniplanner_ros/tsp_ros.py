@@ -4,8 +4,8 @@ import uuid
 from dataclasses import dataclass
 
 import spark_config as sc
-from omniplanner.omniplanner import PlanRequest
-from omniplanner.tsp import FollowPathPlan, TspDomain, TspGoal
+from omniplanner.core import PlanRequest
+from omniplanner.domains.tsp import FollowPathPlan, TspDomain, TspGoal
 from omniplanner_msgs.msg import GotoPointsGoalMsg
 from plum import dispatch
 from robot_executor_interface.action_descriptions import ActionSequence, Follow

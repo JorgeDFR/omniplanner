@@ -1,14 +1,14 @@
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any
 
 import numpy as np
 import spark_dsg
 from plum import dispatch
 
-from dsg_pddl.pddl_grounding import GroundedPddlProblem, PddlDomain, PddlSymbol
-from dsg_pddl.pddl_planning import solve_pddl
-from omniplanner.tsp import LayerPlanner
+from dsg_pddl.core.models import GroundedPddlProblem, PddlDomain, PddlSymbol
+from dsg_pddl.planning.solver import solve_pddl
+from omniplanner.domains.tsp import LayerPlanner
 
 logger = logging.getLogger(__name__)
 
@@ -16,9 +16,9 @@ logger = logging.getLogger(__name__)
 @dataclass
 class PddlPlan:
     domain: PddlDomain
-    symbolic_actions: List[tuple]
-    parameterized_actions: List
-    symbols: Dict[str, PddlSymbol]
+    symbolic_actions: list[tuple]
+    parameterized_actions: list
+    symbols: dict[str, PddlSymbol]
 
 
 def drop_index(t, k):

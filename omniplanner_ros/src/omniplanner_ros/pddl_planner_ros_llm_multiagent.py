@@ -6,8 +6,8 @@ from importlib.resources import as_file, files
 
 import dsg_pddl.domains
 import spark_config as sc
-from dsg_pddl.pddl_grounding import PddlDomain, PddlGoal
-from omniplanner.omniplanner import PlanRequest
+from dsg_pddl.core.models import PddlDomain, PddlGoal
+from omniplanner.core import PlanRequest
 from omniplanner_msgs.msg import PddlGoalMsgList
 
 logger = logging.getLogger(__name__)

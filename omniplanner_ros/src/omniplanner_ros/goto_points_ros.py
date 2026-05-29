@@ -9,8 +9,8 @@ import omniplanner.compile_plan  # NOQA
 import spark_config as sc
 from geometry_msgs.msg import Point, PoseStamped
 from nav_msgs.msg import Path
-from omniplanner.goto_points import GotoPointsDomain, GotoPointsGoal, GotoPointsPlan
-from omniplanner.omniplanner import PlanRequest
+from omniplanner.domains.goto_points import GotoPointsDomain, GotoPointsGoal, GotoPointsPlan
+from omniplanner.core import PlanRequest
 from omniplanner_msgs.msg import GotoPointsGoalMsg
 from plum import dispatch
 from rclpy.clock import Clock

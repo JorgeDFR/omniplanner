@@ -10,11 +10,11 @@ from typing import overload
 import dsg_pddl.domains
 import numpy as np
 import spark_config as sc
-from dsg_pddl.dsg_pddl_planning import PddlPlan
-from dsg_pddl.pddl_grounding import PddlDomain, PddlGoal
+from dsg_pddl.planning.parameterization import PddlPlan
+from dsg_pddl.core.models import PddlDomain, PddlGoal
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Path
-from omniplanner.omniplanner import (
+from omniplanner.core import (
     MultiRobotWrapper,
     PlanRequest,
     RobotWrapper,

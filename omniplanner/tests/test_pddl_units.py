@@ -4,20 +4,28 @@ import numpy as np
 import pytest
 import spark_dsg
 
-import dsg_pddl.dsg_pddl_grounding as grounding
-import dsg_pddl.dsg_pddl_grounding_improved as improved
-import dsg_pddl.dsg_pddl_grounding_multirobot as multirobot
-import dsg_pddl.dsg_pddl_planning as dsg_planning
-import dsg_pddl.pddl_planning as pddl_planning
-from dsg_pddl.pddl_grounding import (
+import dsg_pddl.grounding.legacy as grounding
+import dsg_pddl.grounding.improved_region as improved
+import dsg_pddl.grounding.multirobot as multirobot
+import dsg_pddl.grounding.connectivity as grounding_connectivity
+import dsg_pddl.grounding.containment as grounding_containment
+import dsg_pddl.grounding.dsg_access as grounding_dsg_access
+import dsg_pddl.grounding.improved_region as improved_impl
+import dsg_pddl.grounding.legacy as grounding_impl
+import dsg_pddl.grounding.multirobot as multirobot_impl
+import dsg_pddl.grounding.symbols as grounding_symbols
+import dsg_pddl.planning.parameterization as dsg_planning
+import dsg_pddl.planning.parameterization as parameterization
+import dsg_pddl.planning.solver as pddl_planning
+from dsg_pddl.core.models import (
     GroundedPddlProblem,
     PddlDomain,
     PddlGoal,
     PddlProblem,
     PddlSymbol,
-    ensure_pddl_domain,
 )
-from dsg_pddl.pddl_utils import (
+from dsg_pddl.core.domain_inspection import ensure_pddl_domain
+from dsg_pddl.core.parsing import (
     ast_to_string,
     extract_facts,
     extract_negated_facts,
@@ -122,7 +130,7 @@ def test_grounding_pure_helpers(monkeypatch):
         def get_external_distance(self, a, b):
             return float(np.linalg.norm(a - b))
 
-    monkeypatch.setattr(grounding, "LayerPlanner", FakeLayerPlanner)
+    monkeypatch.setattr(grounding_impl, "LayerPlanner", FakeLayerPlanner)
     assert grounding.generate_symbol_connectivity(object(), [p1, p2]) == [(p2, p1, 3.9)]
     assert ("at-poi", "p1") in grounding.generate_init(object(), [p1, p2], p1)
 
@@ -172,7 +180,11 @@ def test_grounding_layer_helpers_with_fake_dsg(monkeypatch):
         LayerView=object,
         NodeSymbol=FakeNodeSymbol,
     )
-    monkeypatch.setattr(grounding, "spark_dsg", fake_spark)
+    monkeypatch.setattr(grounding_impl, "spark_dsg", fake_spark)
+    monkeypatch.setattr(grounding_connectivity, "spark_dsg", fake_spark)
+    monkeypatch.setattr(grounding_containment, "spark_dsg", fake_spark)
+    monkeypatch.setattr(grounding_dsg_access, "spark_dsg", fake_spark)
+    monkeypatch.setattr(grounding_symbols, "spark_dsg", fake_spark)
 
     p1_node = FakeNode("P(1)", 1, [0.0, 0.0, 0.0], siblings=[2], parents=[5])
     p2_node = FakeNode("P(2)", 2, [1.0, 0.0, 0.0], siblings=[1], parents=[5])
@@ -212,7 +224,7 @@ def test_grounding_layer_helpers_with_fake_dsg(monkeypatch):
     assert {s.symbol for s in grounding.extract_all_symbols(graph)} == {"P(1)", "P(2)", "O(1)", "R(5)"}
 
     unresolved = PddlSymbol("p1", "place", [])
-    monkeypatch.setattr(grounding.spark_dsg, "NodeSymbol", lambda char, idx: 1)
+    monkeypatch.setattr(grounding_symbols.spark_dsg, "NodeSymbol", lambda char, idx: 1)
     grounding.add_symbol_positions(graph, [unresolved])
     assert np.array_equal(unresolved.position, np.array([0.0, 0.0]))
 
@@ -224,11 +236,11 @@ def test_grounding_pddl_generators_with_stubbed_graph(monkeypatch):
         PddlSymbol("R1", "region", []),
     ]
 
-    monkeypatch.setattr(grounding, "extract_all_symbols", lambda graph: all_symbols[:])
-    monkeypatch.setattr(grounding, "add_symbol_positions", lambda graph, symbols: symbols)
-    monkeypatch.setattr(grounding, "generate_init", lambda graph, symbols, start: [("at-poi", start.symbol)])
-    monkeypatch.setattr(grounding, "generate_dense_init", lambda graph, symbols, start: [("dense", start.symbol)])
-    monkeypatch.setattr(grounding, "generate_dense_region_init", lambda graph, symbols, start: [("region", start.symbol)])
+    monkeypatch.setattr(grounding_impl, "extract_all_symbols", lambda graph: all_symbols[:])
+    monkeypatch.setattr(grounding_impl, "add_symbol_positions", lambda graph, symbols: symbols)
+    monkeypatch.setattr(grounding_impl, "generate_init", lambda graph, symbols, start: [("at-poi", start.symbol)])
+    monkeypatch.setattr(grounding_impl, "generate_dense_init", lambda graph, symbols, start: [("dense", start.symbol)])
+    monkeypatch.setattr(grounding_impl, "generate_dense_region_init", lambda graph, symbols, start: [("region", start.symbol)])
 
     inspection_text, inspection_symbols = grounding.generate_inspection_pddl(
         object(), "(and (visited-place p1) (at-object o1))", np.array([0.0, 0.0])
@@ -256,7 +268,7 @@ def test_pddl_ground_problem_routes_legacy_and_improved_domains(monkeypatch):
     symbols = [PddlSymbol("pstart", "place", [], np.array([0.0, 0.0]))]
 
     monkeypatch.setattr(
-        grounding,
+        grounding_impl,
         "generate_inspection_pddl",
         lambda graph, goal, start: ("legacy-problem", symbols),
     )
@@ -266,7 +278,7 @@ def test_pddl_ground_problem_routes_legacy_and_improved_domains(monkeypatch):
     assert legacy.value.problem_str == "legacy-problem"
 
     monkeypatch.setattr(
-        improved,
+        improved_impl,
         "generate_region_rearrangement_pddl_compressed_graph",
         lambda graph, goal, start, domain_name: ("improved-problem", symbols),
     )
@@ -336,11 +348,11 @@ def test_improved_graph_compression_helpers():
 
 def test_improved_pddl_generators_with_stubbed_init(monkeypatch):
     all_symbols = [PddlSymbol("P1", "place", []), PddlSymbol("O1", "object", [])]
-    monkeypatch.setattr(improved, "extract_all_symbols", lambda graph: all_symbols[:])
-    monkeypatch.setattr(improved, "add_symbol_positions", lambda graph, symbols: symbols)
-    monkeypatch.setattr(improved, "generate_dense_places_init", lambda graph, symbols, start: [("at-poi", start.symbol)])
-    monkeypatch.setattr(improved, "generate_improved_places_init", lambda graph, symbols, start, forbidden: ([("at-poi", start.symbol)], symbols))
-    monkeypatch.setattr(improved, "generate_improved_places_init_v2", lambda graph, symbols, start, forbidden: ([("at-poi", start.symbol)], symbols))
+    monkeypatch.setattr(improved_impl, "extract_all_symbols", lambda graph: all_symbols[:])
+    monkeypatch.setattr(improved_impl, "add_symbol_positions", lambda graph, symbols: symbols)
+    monkeypatch.setattr(improved_impl, "generate_dense_places_init", lambda graph, symbols, start: [("at-poi", start.symbol)])
+    monkeypatch.setattr(improved_impl, "generate_improved_places_init", lambda graph, symbols, start, forbidden: ([("at-poi", start.symbol)], symbols))
+    monkeypatch.setattr(improved_impl, "generate_improved_places_init_v2", lambda graph, symbols, start, forbidden: ([("at-poi", start.symbol)], symbols))
 
     for generator in (
         improved.generate_region_rearrangement_pddl_all_symbols,
@@ -363,9 +375,9 @@ def test_multirobot_helpers_and_grounding(monkeypatch, tmp_path):
     assert multirobot.filter_goal_for_available_objects("(and (safe o1))", []) == "(and)"
 
     monkeypatch.setenv("PDDL_DUMP_DIR", str(tmp_path))
-    monkeypatch.setattr(multirobot, "extract_all_symbols", lambda graph: place_symbols[:])
-    monkeypatch.setattr(multirobot, "add_symbol_positions", lambda graph, symbols: symbols)
-    monkeypatch.setattr(multirobot, "generate_dense_region_init_multirobot", lambda graph, symbols, states: [("at-poi", "spot", "pstartspot")])
+    monkeypatch.setattr(multirobot_impl, "extract_all_symbols", lambda graph: place_symbols[:])
+    monkeypatch.setattr(multirobot_impl, "add_symbol_positions", lambda graph, symbols: symbols)
+    monkeypatch.setattr(multirobot_impl, "generate_dense_region_init_multirobot", lambda graph, symbols, states: [("at-poi", "spot", "pstartspot")])
 
     text, symbols = multirobot.generate_multirobot_region_pddl(
         object(), "(and (safe o2))", {"Spot": np.array([1.0, 2.0]), "Bad": None}
@@ -390,9 +402,9 @@ def test_dsg_planning_parameterization_and_solve(monkeypatch, tmp_path):
         def get_external_path(self, a, b):
             return [a, b]
 
-    monkeypatch.setattr(dsg_planning, "LayerPlanner", FakeLayerPlanner)
+    monkeypatch.setattr(parameterization, "LayerPlanner", FakeLayerPlanner)
     monkeypatch.setattr(
-        dsg_planning,
+        parameterization,
         "solve_pddl",
         lambda problem: [
             ("goto-poi", "p1", "p2"),

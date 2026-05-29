@@ -1,12 +1,13 @@
 import time
 from dataclasses import dataclass
-from typing import Any, List, overload
+from typing import Any, overload
 
 import numpy as np
 from plum import dispatch
 from spark_dsg import DynamicSceneGraph
 
-from omniplanner.omniplanner import PlanningDomain, RobotWrapper
+from omniplanner.core.api import PlanningDomain
+from omniplanner.core.wrappers import RobotWrapper
 from omniplanner.utils import str_to_ns_value
 
 
@@ -37,7 +38,7 @@ class GotoPointPrimitive:
 
 @dataclass
 class GotoPointsGoal:
-    goal_points: List[str]
+    goal_points: list[str]
     robot_id: str
 
 

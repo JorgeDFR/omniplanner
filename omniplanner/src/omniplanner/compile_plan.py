@@ -1,10 +1,10 @@
 import logging
 from functools import partial
-from typing import Any, List, overload
+from typing import Any, overload
 
 from plum import dispatch
 
-from omniplanner.omniplanner import (
+from omniplanner.core.wrappers import (
     MultiRobotWrapper,
     RobotWrapper,
     SymbolicContext,
@@ -20,9 +20,9 @@ logger = logging.getLogger(__name__)
 @overload
 @dispatch
 def compile_plan(
-    adaptors, plan_frame: str, p: SymbolicContext[List[Any]]
-) -> List[RobotWrapper[Any]]:
-    logger.debug(f"SymbolicContext[List[Any]] with: {type(p)}")
+    adaptors, plan_frame: str, p: SymbolicContext[list[Any]]
+) -> list[RobotWrapper[Any]]:
+    logger.debug(f"SymbolicContext[list[Any]] with: {type(p)}")
     return fmap(partial(compile_plan, adaptors, plan_frame), push(p))
 
 
@@ -88,9 +88,8 @@ def compile_plan(adaptor, plan_frame: str, p: Wrapper):
 #    return FakeExecutorAction(adaptor.robot_name, p.value.fake_action)
 
 
-@overload
 @dispatch
-def collect_plans(p: List[RobotWrapper[Any]]):
+def collect_plans(p: list[RobotWrapper[Any]]):
     # TODO: should we warn about duplicate names in robot wrappers?
     return {r.name: r.value for r in p}
 

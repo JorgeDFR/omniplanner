@@ -1,6 +1,6 @@
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import Generic, Iterable, List, Set, TypeVar, Union, overload
+from typing import Generic, TypeVar, Union, overload
 
 from plum import dispatch, parametric
 
@@ -65,12 +65,12 @@ def fmap(fn: Callable, iterable: Iterable):
 
 @overload
 @dispatch
-def fmap(fn: Callable, lst: List):
+def fmap(fn: Callable, lst: list):
     return [fn(e) for e in lst]
 
 
 @dispatch
-def fmap(fn: Callable, s: Set):
+def fmap(fn: Callable, s: set):
     return set(fn(e) for e in s)
 
 

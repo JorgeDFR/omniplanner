@@ -2,23 +2,38 @@ import logging
 from typing import Any
 
 import spark_dsg
-import numpy as np
 from plum import dispatch
 
-from dsg_pddl.pddl_grounding import (
+from dsg_pddl.grounding.connectivity import (
+    explicit_edges_from_layer,
+    implicit_edges_from_layers,
+    symbol_connectivity_to_pddl,
+)
+from dsg_pddl.grounding.containment import (
+    generate_object_containment,
+    generate_place_containment,
+)
+from dsg_pddl.grounding.dsg_access import get_places_layer
+from dsg_pddl.grounding.symbols import (
+    add_symbol_positions,
+    extract_all_symbols,
+    generate_objects,
+    normalize_symbol,
+    normalize_symbols,
+)
+from dsg_pddl.core.models import (
     GroundedPddlProblem,
     PddlDomain,
     PddlGoal,
     PddlProblem,
     PddlSymbol,
 )
-from dsg_pddl.pddl_utils import (
+from dsg_pddl.core.parsing import (
     extract_facts,
     lisp_string_to_ast,
-    pddl_char_to_dsg_char,
 )
-from omniplanner.omniplanner import RobotWrapper
-from omniplanner.tsp import LayerPlanner
+from omniplanner.core.wrappers import RobotWrapper
+from omniplanner.domains.tsp import LayerPlanner
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +82,7 @@ def ground_problem(
 
 
 def _ground_improved_pddl_problem(domain, dsg, robot_states, goal, feedback=None):
-    from dsg_pddl.dsg_pddl_grounding_improved import ground_improved_problem
+    from dsg_pddl.grounding.improved_region import ground_improved_problem
 
     return ground_improved_problem(domain, dsg, robot_states, goal, feedback)
 
@@ -87,25 +102,6 @@ def generate_symbol_connectivity(G, symbols):
     return connections
 
 
-def symbol_connectivity_to_pddl(connectivity):
-    connections_init = []
-
-    for info_s, info_t, dist in connectivity:
-        s = info_s.symbol
-        t = info_t.symbol
-        d = int(dist)
-
-        connected = ("connected", s, t)
-        distance = ("=", ("distance", s, t), d)
-        distance_rev = ("=", ("distance", t, s), d)
-
-        connections_init.append(connected)
-        connections_init.append(distance)
-        connections_init.append(distance_rev)
-
-    return connections_init
-
-
 def generate_init(G, symbols_of_interest, start_symbol):
     connectivity = generate_symbol_connectivity(G, symbols_of_interest)
     connectivity_pddl = symbol_connectivity_to_pddl(connectivity)
@@ -113,63 +109,6 @@ def generate_init(G, symbols_of_interest, start_symbol):
     initial_pddl = [("=", ("total-cost",), 0), ("at-poi", start_symbol.symbol)]
     initial_pddl += connectivity_pddl
     return initial_pddl
-
-
-def explicit_edges_from_layer(
-    symbol_lookup: dict, G: spark_dsg.DynamicSceneGraph, layer: spark_dsg.LayerView
-):
-    """Get the edges corresponding to layer's edges"""
-    edges = []
-    for node in layer.nodes:
-        p1 = node.attributes.position
-        normalized_symbol = symbol_lookup[normalize_symbol(node.id.str(True))]
-        for neighbor in node.siblings():
-            if node.id.value < neighbor:
-                continue
-            n = G.get_node(neighbor)
-            p2 = n.attributes.position
-            normalized_symbol2 = symbol_lookup[normalize_symbol(n.id.str(True))]
-            edges.append(
-                (normalized_symbol, normalized_symbol2, np.linalg.norm(p1 - p2))
-            )
-    return edges
-
-
-def implicit_edges_from_layers(
-    symbol_lookup: dict,
-    layer1: spark_dsg.LayerView,
-    layer2: spark_dsg.LayerView,
-    same_layer,
-    connection_threshold,
-    layer_planner=None,
-):
-    edges = []
-    for n1 in layer1.nodes:
-        p1 = n1.attributes.position
-        normalized_symbol = symbol_lookup[normalize_symbol(n1.id.str(True))]
-        for n2 in layer2.nodes:
-            if same_layer and n1.id.value <= n2.id.value:
-                continue
-            p2 = n2.attributes.position
-            d = np.linalg.norm(p1 - p2)
-            if d > connection_threshold:
-                continue
-
-            if layer_planner is not None:
-                d = layer_planner.get_external_distance(p1[:2], p2[:2])
-                if d > connection_threshold:
-                    continue
-
-            normalized_symbol2 = symbol_lookup[normalize_symbol(n2.id.str(True))]
-            edges.append((normalized_symbol, normalized_symbol2, d))
-    return edges
-
-
-def get_places_layer(G):
-    try:
-        return G.get_layer(spark_dsg.DsgLayers.MESH_PLACES)
-    except Exception:
-        return G.get_layer(20)
 
 
 def add_start_symbol_edges(
@@ -231,50 +170,6 @@ def generate_dense_region_symbol_connectivity(G, symbols):
     return generate_dense_symbol_connectivity(G, symbols, include_regions=True)
 
 
-def generate_object_containment(G):
-    places_layer = get_places_layer(G)
-
-    containments = []
-
-    centers = []
-    symbols = []
-    for node in places_layer.nodes:
-        centers.append(node.attributes.position)
-        symbols.append(normalize_symbol(node.id.str(True)))
-    centers = np.array(centers)
-
-    for node in G.get_layer(spark_dsg.DsgLayers.OBJECTS).nodes:
-        closest_idx = np.argmin(
-            np.linalg.norm(centers - node.attributes.position, axis=1)
-        )
-        closest_place = symbols[closest_idx]
-        containments.append(
-            ("object-in-place", normalize_symbol(node.id.str(True)), closest_place)
-        )
-
-    return containments
-
-
-def generate_place_containment(G):
-    places_layer_2d = get_places_layer(G)
-
-    containments = []
-
-    for node in places_layer_2d.nodes:
-        parents = node.parents()
-        for parent in parents:
-            if parent is not None:
-                containments.append(
-                    (
-                        "place-in-region",
-                        normalize_symbol(node.id.str(True)),
-                        normalize_symbol(spark_dsg.NodeSymbol(parent).str(True)),
-                    )
-                )
-
-    return containments
-
-
 def generate_dense_init(G, symbols_of_interest, start_symbol):
     connectivity = generate_dense_symbol_connectivity(G, symbols_of_interest)
     connectivity_pddl = symbol_connectivity_to_pddl(connectivity)
@@ -318,45 +213,6 @@ def simplify(pddl_goal):
     return pddl_goal
 
 
-def add_symbol_positions(G, symbols):
-    for s in symbols:
-        if s.position is not None:
-            continue
-        else:
-            pddl_symbol_char = s.symbol[0]
-            dsg_symbol_char = pddl_char_to_dsg_char(pddl_symbol_char)
-            ns = spark_dsg.NodeSymbol(dsg_symbol_char, int(s.symbol[1:]))
-            position = G.get_node(ns).attributes.position[:2]
-            if position is None:
-                raise Exception(f"Could not find node {ns} in DSG")
-            s.position = position
-    return symbols
-
-
-def normalize_symbols(symbols):
-    for s in symbols:
-        s.symbol = normalize_symbol(s)
-
-def normalize_symbol(symbol):
-    if isinstance(symbol, str):
-        return symbol.lower()
-    else:
-        return symbol.symbol.lower()
-
-
-def generate_objects(symbols):
-    type_dict = {"place": [], "dsg_object": [], "region": []}
-    for s in symbols:
-        if s.layer == "place":
-            type_dict["place"].append(s.symbol)
-        elif s.layer == "object":
-            type_dict["dsg_object"].append(s.symbol)
-        elif s.layer == "region":
-            type_dict["region"].append(s.symbol)
-
-    return type_dict
-
-
 def generate_inspection_pddl(G, raw_pddl_goal_string, initial_position):
     problem_name = "goto-object-problem"
     problem_domain = "goto-object-domain"
@@ -390,24 +246,6 @@ def generate_inspection_pddl(G, raw_pddl_goal_string, initial_position):
     )
 
     return problem.to_string(), symbols
-
-
-def extract_all_symbols(G):
-    places_layer = get_places_layer(G)
-
-    place_symbols = []
-    for node in places_layer.nodes:
-        place_symbols.append(PddlSymbol(node.id.str(True), "place", []))
-
-    region_symbols = []
-    for node in G.get_layer(spark_dsg.DsgLayers.ROOMS).nodes:
-        region_symbols.append(PddlSymbol(node.id.str(True), "region", []))
-
-    object_symbols = []
-    for node in G.get_layer(spark_dsg.DsgLayers.OBJECTS).nodes:
-        object_symbols.append(PddlSymbol(node.id.str(True), "object", []))
-
-    return place_symbols + object_symbols + region_symbols
 
 
 def generate_rearrangement_pddl(G, raw_pddl_goal_string, initial_position):

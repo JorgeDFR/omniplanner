@@ -1,14 +1,13 @@
-
-import os
-import time
-import signal
 import logging
+import os
+import signal
+import subprocess
 import tempfile
 import threading
-import subprocess
+import time
 
-from dsg_pddl.pddl_grounding import GroundedPddlProblem
-from dsg_pddl.pddl_utils import lisp_string_to_ast
+from dsg_pddl.core.models import GroundedPddlProblem
+from dsg_pddl.core.parsing import lisp_string_to_ast
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +32,8 @@ def _run_fd(problem, domain, search_cmd, timeout, result_container, key):
 
         command = [
             "fast-downward",
-            "--plan-file", plan_fn,
+            "--plan-file",
+            plan_fn,
             domain_fn,
             problem_fn,
             "--search",
@@ -74,9 +74,9 @@ def solve_pddl(problem: GroundedPddlProblem):
     # -----------------------
     # Define planners
     # -----------------------
-    #optimal_search = f"astar(lmcut(), max_time={OPTIMAL_TIMEOUT})"
+    # optimal_search = f"astar(lmcut(), max_time={OPTIMAL_TIMEOUT})"
     optimal_search = f"astar(ff(), max_time={OPTIMAL_TIMEOUT})"
-    #suboptimal_search = "let(hff, ff(), eager_wastar([hff], preferred=[hff], w=2, max_time={SUBOPTIMAL_TIMEOUT}))"
+    # suboptimal_search = "let(hff, ff(), eager_wastar([hff], preferred=[hff], w=2, max_time={SUBOPTIMAL_TIMEOUT}))"
     suboptimal_search = f"let(hff, ff(), lazy_greedy([hff], preferred=[hff], max_time={SUBOPTIMAL_TIMEOUT}))"
 
     # -----------------------
@@ -86,14 +86,26 @@ def solve_pddl(problem: GroundedPddlProblem):
 
     t_opt = threading.Thread(
         target=_run_fd,
-        args=(problem, problem.domain, optimal_search,
-              OPTIMAL_TIMEOUT, results, "optimal"),
+        args=(
+            problem,
+            problem.domain,
+            optimal_search,
+            OPTIMAL_TIMEOUT,
+            results,
+            "optimal",
+        ),
     )
 
     t_sub = threading.Thread(
         target=_run_fd,
-        args=(problem, problem.domain, suboptimal_search,
-              SUBOPTIMAL_TIMEOUT, results, "suboptimal"),
+        args=(
+            problem,
+            problem.domain,
+            suboptimal_search,
+            SUBOPTIMAL_TIMEOUT,
+            results,
+            "suboptimal",
+        ),
     )
 
     start = time.time()
@@ -119,7 +131,7 @@ def solve_pddl(problem: GroundedPddlProblem):
         logger.debug("Returning SUBOPTIMAL plan")
         chosen = results["suboptimal"]
     else:
-        logger.warning(f"Planning failed.")
+        logger.warning("Planning failed.")
         chosen = []
 
     # -----------------------

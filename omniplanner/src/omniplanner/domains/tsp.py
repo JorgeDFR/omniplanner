@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass
-from typing import Any, List
+from typing import Any
 
 import networkx as nx
 import numpy as np
@@ -8,7 +8,8 @@ import spark_dsg
 import spark_dsg.networkx as dsg_nx
 from plum import dispatch
 
-from omniplanner.omniplanner import PlanningDomain, RobotWrapper
+from omniplanner.core.api import PlanningDomain
+from omniplanner.core.wrappers import RobotWrapper
 from omniplanner.utils import str_to_ns_value
 
 logger = logging.getLogger(__name__)
@@ -171,14 +172,14 @@ class TspDomain(PlanningDomain):
 @dataclass
 class GroundedTspProblem:
     start_point: np.ndarray
-    goal_points: List[np.ndarray]
+    goal_points: list[np.ndarray]
     distances: np.ndarray
     solver: str = "2opt"
 
 
 @dataclass
 class TspGoal:
-    goal_points: List[str]
+    goal_points: list[str]
     robot_id: str
 
 

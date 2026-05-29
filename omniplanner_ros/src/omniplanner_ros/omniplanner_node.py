@@ -11,7 +11,7 @@ import tf2_ros
 import tf_transformations
 from nav_msgs.msg import Path
 from omniplanner.compile_plan import collect_plans, compile_plan
-from omniplanner.omniplanner import full_planning_pipeline
+from omniplanner.core import full_planning_pipeline
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node

@@ -8,10 +8,10 @@ from importlib.resources import as_file, files
 import dsg_pddl
 import nlu_interface.resources
 import spark_config as sc
-from dsg_pddl.pddl_grounding import PddlDomain
+from dsg_pddl.core.models import PddlDomain
 from nlu_interface.llm_interface import OpenAIWrapper
-from omniplanner.language_planner import LanguageDomain, LanguageGoal
-from omniplanner.omniplanner import PlanRequest
+from omniplanner.domains.language import LanguageDomain, LanguageGoal
+from omniplanner.core import PlanRequest
 from omniplanner_msgs.msg import LanguageGoalMsg
 from ruamel.yaml import YAML
 from std_msgs.msg import String

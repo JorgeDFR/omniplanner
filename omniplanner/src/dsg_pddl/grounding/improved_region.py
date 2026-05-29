@@ -8,32 +8,36 @@ import networkx as nx
 import numpy as np
 import spark_dsg
 
-from dsg_pddl.pddl_grounding import (
+from dsg_pddl.core.models import (
     GroundedPddlProblem,
     PddlDomain,
     PddlGoal,
     PddlProblem,
     PddlSymbol,
 )
-from dsg_pddl.dsg_pddl_grounding import (
-    add_symbol_positions,
+from dsg_pddl.grounding.connectivity import (
     explicit_edges_from_layer,
-    extract_all_symbols,
-    generate_objects,
-    generate_object_containment,
-    generate_place_containment,
-    simplify,
-    normalize_symbols,
-    normalize_symbol,
     symbol_connectivity_to_pddl,
 )
-from dsg_pddl.pddl_utils import (
+from dsg_pddl.grounding.containment import (
+    generate_object_containment,
+    generate_place_containment,
+)
+from dsg_pddl.grounding.legacy import simplify
+from dsg_pddl.grounding.symbols import (
+    add_symbol_positions,
+    extract_all_symbols,
+    generate_objects,
+    normalize_symbols,
+    normalize_symbol,
+)
+from dsg_pddl.core.parsing import (
     extract_facts,
     extract_negated_facts,
     lisp_string_to_ast,
 )
-from omniplanner.omniplanner import RobotWrapper
-from omniplanner.tsp import LayerPlanner
+from omniplanner.core.wrappers import RobotWrapper
+from omniplanner.domains.tsp import LayerPlanner
 
 logger = logging.getLogger(__name__)
 

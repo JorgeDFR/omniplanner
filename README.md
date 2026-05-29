@@ -78,6 +78,10 @@ out-of-the-box, and demonstrate the construction of a planning problem and how
 to run the planning pipeline. Running the natural language example may require
 providing and setting an API key environment variable.
 
+The main demo scripts live directly in `omniplanner/examples`. Experimental
+workflows are isolated under `omniplanner/examples/experiments`, including the
+PDDL improved-grounding experiment and the PDDLStream prototype.
+
 * (TODO) Omniplanner example roslaunch script and config and scene graph
   publishing
 * (TODO) example integrating plugin from external repository

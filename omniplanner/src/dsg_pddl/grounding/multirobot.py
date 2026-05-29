@@ -1,35 +1,39 @@
 import logging
 import os
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import numpy as np
 import spark_dsg
 from plum import dispatch
 
-from dsg_pddl.dsg_pddl_grounding import (
-    add_symbol_positions,
-    explicit_edges_from_layer,
-    extract_all_symbols,
-    generate_object_containment,
-    generate_objects,
-    generate_place_containment,
-    get_places_layer,
-    implicit_edges_from_layers,
-    normalize_symbols,
-    simplify,
-    symbol_connectivity_to_pddl,
-)
-from dsg_pddl.pddl_grounding import (
+from dsg_pddl.core.models import (
     GroundedPddlProblem,
     MultiRobotPddlDomain,
     PddlGoal,
     PddlProblem,
     PddlSymbol,
 )
-from dsg_pddl.pddl_utils import lisp_string_to_ast
-from omniplanner.omniplanner import MultiRobotWrapper
-from omniplanner.tsp import LayerPlanner
+from dsg_pddl.core.parsing import lisp_string_to_ast
+from dsg_pddl.grounding.connectivity import (
+    explicit_edges_from_layer,
+    implicit_edges_from_layers,
+    symbol_connectivity_to_pddl,
+)
+from dsg_pddl.grounding.containment import (
+    generate_object_containment,
+    generate_place_containment,
+)
+from dsg_pddl.grounding.dsg_access import get_places_layer
+from dsg_pddl.grounding.legacy import simplify
+from dsg_pddl.grounding.symbols import (
+    add_symbol_positions,
+    extract_all_symbols,
+    generate_objects,
+    normalize_symbols,
+)
+from omniplanner.core.wrappers import MultiRobotWrapper
+from omniplanner.domains.tsp import LayerPlanner
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +89,7 @@ def add_robot_start_edges(
                     edges.append((start_symbol, s, d))
 
 
-def nearest_place_for_position(place_symbols: List[PddlSymbol], pos: np.ndarray) -> str:
+def nearest_place_for_position(place_symbols: list[PddlSymbol], pos: np.ndarray) -> str:
     best_name = place_symbols[0].symbol
     best_d = float("inf")
     for p in place_symbols:
@@ -99,15 +103,15 @@ def nearest_place_for_position(place_symbols: List[PddlSymbol], pos: np.ndarray)
 # Multirobot init wrapper that reuses shared connectivity and containment helpers
 def generate_dense_region_init_multirobot(
     G: spark_dsg.DynamicSceneGraph,
-    symbols_of_interest: List[PddlSymbol],
-    robot_states: Dict[str, np.ndarray],
-) -> List[tuple]:
+    symbols_of_interest: list[PddlSymbol],
+    robot_states: dict[str, np.ndarray],
+) -> list[tuple]:
     connectivity = generate_dense_region_symbol_connectivity_multirobot(
         G, symbols_of_interest, robot_states
     )
     connectivity_pddl = symbol_connectivity_to_pddl(connectivity)
 
-    initial_pddl: List[tuple] = [("=", ("total-cost",), 0)]
+    initial_pddl: list[tuple] = [("=", ("total-cost",), 0)]
     initial_pddl += connectivity_pddl
 
     # Containment relations (objects and places -> regions)
@@ -125,7 +129,7 @@ def generate_dense_region_init_multirobot(
 
 
 def filter_goal_for_available_objects(
-    goal_string: str, available_objects: List[str]
+    goal_string: str, available_objects: list[str]
 ) -> str:
     """Filter goal string to only include objects that are available in the problem."""
     import re
@@ -150,7 +154,7 @@ def generate_multirobot_region_pddl(
     G: spark_dsg.DynamicSceneGraph,
     raw_pddl_goal_string: str,
     robot_states: np.ndarray,
-) -> Tuple[str, List[PddlSymbol]]:
+) -> tuple[str, list[PddlSymbol]]:
     """Generate a multi-robot PDDL problem for domain region-object-rearrangement-domain-multirobot-fd."""
     # Collect all places/objects/regions and positions
     symbols = extract_all_symbols(G)
@@ -182,7 +186,7 @@ def generate_multirobot_region_pddl(
     # Robot starts at nearest places to their given 2D states
     robot_ids = [rid for rid, pose in robot_states.items() if pose is not None]
     # Build init facts via shared helpers
-    init_facts_tuples: List[tuple] = generate_dense_region_init_multirobot(
+    init_facts_tuples: list[tuple] = generate_dense_region_init_multirobot(
         G, symbols_of_interest, robot_states
     )
 

@@ -3,9 +3,9 @@ import numpy as np
 import pytest
 from types import SimpleNamespace
 
-import omniplanner.tsp as tsp
-import omniplanner.omniplanner as core
-from omniplanner.tsp import (
+import omniplanner.core as core
+import omniplanner.domains.tsp as tsp_impl
+from omniplanner.domains.tsp import (
     FollowPathPlan,
     GroundedTspProblem,
     LayerPlanner,
@@ -58,8 +58,8 @@ class FakeDsg:
 
 def test_layer_planner_paths_distances_and_external_projection(monkeypatch):
     fake = FakeDsg()
-    monkeypatch.setattr(tsp, "spark_dsg", SimpleNamespace(DsgLayers=SimpleNamespace(MESH_PLACES="mesh")))
-    monkeypatch.setattr(tsp.dsg_nx, "layer_to_networkx", lambda layer: fake.graph)
+    monkeypatch.setattr(tsp_impl, "spark_dsg", SimpleNamespace(DsgLayers=SimpleNamespace(MESH_PLACES="mesh")))
+    monkeypatch.setattr(tsp_impl.dsg_nx, "layer_to_networkx", lambda layer: fake.graph)
 
     planner = LayerPlanner(fake, "mesh", precompute_shortest_paths=True)
     assert planner.get_shortest_distance(1, 3) == 2
@@ -86,8 +86,8 @@ def test_layer_planner_falls_back_to_numeric_mesh_layer(monkeypatch):
         return "fallback"
 
     fake.get_layer = get_layer
-    monkeypatch.setattr(tsp, "spark_dsg", SimpleNamespace(DsgLayers=SimpleNamespace(MESH_PLACES="mesh")))
-    monkeypatch.setattr(tsp.dsg_nx, "layer_to_networkx", lambda layer: fake.graph)
+    monkeypatch.setattr(tsp_impl, "spark_dsg", SimpleNamespace(DsgLayers=SimpleNamespace(MESH_PLACES="mesh")))
+    monkeypatch.setattr(tsp_impl.dsg_nx, "layer_to_networkx", lambda layer: fake.graph)
 
     LayerPlanner(fake, "mesh")
     assert calls == ["mesh", 20]
@@ -113,7 +113,7 @@ def test_two_opt_and_tsp_plan(monkeypatch):
         def get_external_path(self, a, b):
             return [a, b]
 
-    monkeypatch.setattr(tsp, "LayerPlanner", FakeLayerPlanner)
+    monkeypatch.setattr(tsp_impl, "LayerPlanner", FakeLayerPlanner)
     problem = GroundedTspProblem(
         start_point=np.array([0.0, 0.0]),
         goal_points=np.array([[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]]),
@@ -156,8 +156,8 @@ def test_tsp_ground_problem_from_symbolic_goal(monkeypatch):
         def get_external_distance(self, a, b):
             return float(np.linalg.norm(a - b))
 
-    monkeypatch.setattr(tsp, "str_to_ns_value", lambda symbol: symbol.lower().replace("(", "").replace(")", ""))
-    monkeypatch.setattr(tsp, "LayerPlanner", FakeLayerPlanner)
+    monkeypatch.setattr(tsp_impl, "str_to_ns_value", lambda symbol: symbol.lower().replace("(", "").replace(")", ""))
+    monkeypatch.setattr(tsp_impl, "LayerPlanner", FakeLayerPlanner)
 
     wrapped = core.ground_problem(
         TspDomain("2opt"),

@@ -5,11 +5,11 @@ from dataclasses import dataclass
 from importlib.resources import as_file, files
 
 import dsg_pddl.domains
-import dsg_pddl.dsg_pddl_grounding_multirobot  # noqa: F401
-import dsg_pddl.dsg_pddl_planning  # noqa: F401
+import dsg_pddl.grounding.multirobot  # noqa: F401
+import dsg_pddl.planning.parameterization  # noqa: F401
 import spark_config as sc
-from dsg_pddl.pddl_grounding import MultiRobotPddlDomain, PddlGoal
-from omniplanner.omniplanner import PlanRequest
+from dsg_pddl.core.models import MultiRobotPddlDomain, PddlGoal
+from omniplanner.core import PlanRequest
 from omniplanner_msgs.msg import PddlGoalMsg
 
 logger = logging.getLogger(__name__)
