@@ -3,7 +3,7 @@ import numpy as np
 from omniplanner.goto_points import GotoPointsDomain, GotoPointsGoal
 from omniplanner.compile_plan import collect_plans
 from omniplanner.omniplanner import PlanRequest, full_planning_pipeline
-from omniplanner_ros.goto_points_ros import compile_plan
+from simple_compile_plan import compile_plan
 from utils import DummyRobotPlanningAdaptor, build_test_dsg
 
 

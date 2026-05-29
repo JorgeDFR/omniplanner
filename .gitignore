@@ -5,3 +5,6 @@
 
 # Local scenegraph data
 omniplanner/examples/scenegraph/*.json
+
+.venv/
+.pytest_cache/

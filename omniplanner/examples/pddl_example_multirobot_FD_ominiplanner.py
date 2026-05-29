@@ -13,7 +13,7 @@ from utils import DummyRobotPlanningAdaptor, load_omniplanner_pddl_domain
 
 from omniplanner.compile_plan import collect_plans
 from omniplanner.omniplanner import PlanRequest, full_planning_pipeline
-from omniplanner_ros.pddl_planner_ros import compile_plan
+from simple_compile_plan import compile_plan
 
 logging.basicConfig(level=logging.DEBUG, force=True)
 

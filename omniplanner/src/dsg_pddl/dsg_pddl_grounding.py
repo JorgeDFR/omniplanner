@@ -15,12 +15,61 @@ from dsg_pddl.pddl_grounding import (
 from dsg_pddl.pddl_utils import (
     extract_facts,
     lisp_string_to_ast,
-    pddl_char_to_dsg_char
+    pddl_char_to_dsg_char,
 )
 from omniplanner.omniplanner import RobotWrapper
 from omniplanner.tsp import LayerPlanner
 
 logger = logging.getLogger(__name__)
+
+GOTO_OBJECT_DOMAIN = "goto-object-domain"
+OBJECT_REARRANGEMENT_DOMAIN = "object-rearrangement-domain"
+REGION_OBJECT_REARRANGEMENT_DOMAIN = "region-object-rearrangement-domain"
+
+
+@dispatch
+def ground_problem(
+    domain: PddlDomain,
+    dsg: spark_dsg.DynamicSceneGraph,
+    robot_states: dict,
+    goal: PddlGoal,
+    feedback: Any = None,
+) -> RobotWrapper[GroundedPddlProblem]:
+    logger.info(f"Grounding PDDL Problem {domain.domain_name}")
+
+    start = robot_states[goal.robot_id][:2]
+
+    # TODO: TBD whether we want to check the domain here and choose how
+    # to instantiate the PDDL problem, or if that should be in a separately
+    # ground_problem function.
+    match domain.domain_name:
+        case "goto-object-domain":
+            pddl_problem, symbols = generate_inspection_pddl(dsg, goal.pddl_goal, start)
+        case "object-rearrangement-domain":
+            pddl_problem, symbols = generate_rearrangement_pddl(
+                dsg, goal.pddl_goal, start
+            )
+        case "region-object-rearrangement-domain":
+            pddl_problem, symbols = generate_region_pddl(dsg, goal.pddl_goal, start)
+        case _:
+            return _ground_improved_pddl_problem(
+                domain,
+                dsg,
+                robot_states,
+                goal,
+                feedback,
+            )
+
+    symbol_dict = {s.symbol: s for s in symbols}
+    return RobotWrapper(
+        goal.robot_id, GroundedPddlProblem(domain, pddl_problem, symbol_dict)
+    )
+
+
+def _ground_improved_pddl_problem(domain, dsg, robot_states, goal, feedback=None):
+    from dsg_pddl.dsg_pddl_grounding_improved import ground_improved_problem
+
+    return ground_improved_problem(domain, dsg, robot_states, goal, feedback)
 
 
 def generate_symbol_connectivity(G, symbols):
@@ -116,22 +165,42 @@ def implicit_edges_from_layers(
     return edges
 
 
-def generate_dense_symbol_connectivity(G, symbols):
+def get_places_layer(G):
+    try:
+        return G.get_layer(spark_dsg.DsgLayers.MESH_PLACES)
+    except Exception:
+        return G.get_layer(20)
+
+
+def add_start_symbol_edges(
+    edges,
+    symbols,
+    layer_planner,
+    start_symbol_key="pstart",
+    threshold=3,
+):
+    symbol_lookup = {s.symbol: s for s in symbols}
+    start_symbol = symbol_lookup[start_symbol_key]
+    start_position = start_symbol.position
+
+    for symbol in symbols:
+        if symbol.symbol == start_symbol_key:
+            continue
+
+        distance = layer_planner.get_external_distance(start_position, symbol.position)
+        if distance < threshold:
+            edges.append((start_symbol, symbol, distance))
+
+
+def generate_dense_symbol_connectivity(G, symbols, include_regions=False):
     symbol_lookup = {s.symbol: s for s in symbols}
 
-    try:
-        places_layer = G.get_layer(spark_dsg.DsgLayers.MESH_PLACES)
-    except Exception:
-        places_layer = G.get_layer(20)
-
+    places_layer = get_places_layer(G)
     edges = []
 
-    # Place <-> Place Edges
     edges += explicit_edges_from_layer(symbol_lookup, G, places_layer)
-
     layer_planner = LayerPlanner(G, spark_dsg.DsgLayers.MESH_PLACES)
 
-    # Object <-> Object Edges
     edges += implicit_edges_from_layers(
         symbol_lookup,
         G.get_layer(spark_dsg.DsgLayers.OBJECTS),
@@ -141,7 +210,6 @@ def generate_dense_symbol_connectivity(G, symbols):
         layer_planner,
     )
 
-    # Object <-> Place Edges
     edges += implicit_edges_from_layers(
         symbol_lookup,
         G.get_layer(spark_dsg.DsgLayers.OBJECTS),
@@ -151,82 +219,20 @@ def generate_dense_symbol_connectivity(G, symbols):
         layer_planner,
     )
 
-    start_symbol = symbol_lookup["pstart"]
-    start_position = start_symbol.position
+    if include_regions:
+        # Region-level edges are not currently consumed by the PDDL domains.
+        pass
 
-    # Connection between starting place and other symbols
-    start_connection_threshold = 3
-    for s in symbols:
-        if s.symbol == "pstart":
-            continue
-
-        d = layer_planner.get_external_distance(start_position, s.position)
-        if d < start_connection_threshold:
-            edges.append((start_symbol, s, d))
-
+    add_start_symbol_edges(edges, symbols, layer_planner)
     return edges
 
 
 def generate_dense_region_symbol_connectivity(G, symbols):
-    symbol_lookup = {s.symbol: s for s in symbols}
-
-    try:
-        places_layer = G.get_layer(spark_dsg.DsgLayers.MESH_PLACES)
-    except Exception:
-        places_layer = G.get_layer(20)
-
-    edges = []
-
-    # Place <-> Place Edges
-    edges += explicit_edges_from_layer(symbol_lookup, G, places_layer)
-
-    layer_planner = LayerPlanner(G, spark_dsg.DsgLayers.MESH_PLACES)
-
-    # Object <-> Object Edges
-    edges += implicit_edges_from_layers(
-        symbol_lookup,
-        G.get_layer(spark_dsg.DsgLayers.OBJECTS),
-        G.get_layer(spark_dsg.DsgLayers.OBJECTS),
-        True,
-        3,
-        layer_planner,
-    )
-
-    # Object <-> Place Edges
-    edges += implicit_edges_from_layers(
-        symbol_lookup,
-        G.get_layer(spark_dsg.DsgLayers.OBJECTS),
-        places_layer,
-        False,
-        10,
-        layer_planner,
-    )
-
-    # Region <-> Region Edges #TODO: currently, we don't actually utilize edges between regions?
-    # region_layer =  G.get_layer(spark_dsg.DsgLayers.ROOMS)
-    # edges += implicit_edges_from_layers(symbol_lookup, region_layer, region_layer, True, 20)
-
-    start_symbol = symbol_lookup["pstart"]
-    start_position = start_symbol.position
-
-    # Connection between starting place and other symbols
-    start_connection_threshold = 3
-    for s in symbols:
-        if s.symbol == "pstart":
-            continue
-
-        d = layer_planner.get_external_distance(start_position, s.position)
-        if d < start_connection_threshold:
-            edges.append((start_symbol, s, d))
-
-    return edges
+    return generate_dense_symbol_connectivity(G, symbols, include_regions=True)
 
 
 def generate_object_containment(G):
-    try:
-        places_layer = G.get_layer(spark_dsg.DsgLayers.MESH_PLACES)
-    except Exception:
-        places_layer = G.get_layer(20)
+    places_layer = get_places_layer(G)
 
     containments = []
 
@@ -250,10 +256,7 @@ def generate_object_containment(G):
 
 
 def generate_place_containment(G):
-    try:
-        places_layer_2d = G.get_layer(spark_dsg.DsgLayers.MESH_PLACES)
-    except Exception:
-        places_layer_2d = G.get_layer(20)
+    places_layer_2d = get_places_layer(G)
 
     containments = []
 
@@ -390,10 +393,7 @@ def generate_inspection_pddl(G, raw_pddl_goal_string, initial_position):
 
 
 def extract_all_symbols(G):
-    try:
-        places_layer = G.get_layer(spark_dsg.DsgLayers.MESH_PLACES)
-    except Exception:
-        places_layer = G.get_layer(20)
+    places_layer = get_places_layer(G)
 
     place_symbols = []
     for node in places_layer.nodes:
@@ -477,38 +477,3 @@ def generate_region_pddl(G, raw_pddl_goal_string, initial_position):
     )
 
     return problem.to_string(), symbols
-
-
-# @dispatch
-# def ground_problem(
-#     domain: PddlDomain,
-#     dsg: spark_dsg.DynamicSceneGraph,
-#     robot_states: dict,
-#     goal: PddlGoal,
-#     feedback: Any = None,
-# ) -> RobotWrapper[GroundedPddlProblem]:
-#     logger.info(f"Grounding PDDL Problem {domain.domain_name}")
-
-#     start = robot_states[goal.robot_id][:2]
-
-#     # TODO: TBD whether we want to check the domain here and choose how
-#     # to instantiate the PDDL problem, or if that should be in a separately
-#     # ground_problem function.
-#     match domain.domain_name:
-#         case "goto-object-domain":
-#             pddl_problem, symbols = generate_inspection_pddl(dsg, goal.pddl_goal, start)
-#         case "object-rearrangement-domain":
-#             pddl_problem, symbols = generate_rearrangement_pddl(
-#                 dsg, goal.pddl_goal, start
-#             )
-#         case "region-object-rearrangement-domain":
-#             pddl_problem, symbols = generate_region_pddl(dsg, goal.pddl_goal, start)
-#         case _:
-#             raise NotImplementedError(
-#                 f"I don't know how to ground a domain of type {domain.domain_name}!"
-#             )
-
-#     symbol_dict = {s.symbol: s for s in symbols}
-#     return RobotWrapper(
-#         goal.robot_id, GroundedPddlProblem(domain, pddl_problem, symbol_dict)
-#     )

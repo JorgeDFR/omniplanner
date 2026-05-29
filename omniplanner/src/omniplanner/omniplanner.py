@@ -1,13 +1,13 @@
 import logging
 from collections import UserDict
 from dataclasses import dataclass, field
-from typing import Any, Callable, List, overload
+from typing import Any, Callable, Generic, overload
 
 from dsg_pddl.pddl_utils import pddl_char_to_dsg_char
 from plum import dispatch
 from spark_dsg import NodeSymbol
 
-from omniplanner.functor import Functor, FunctorTrait, dispatchable_parametric
+from omniplanner.functor import Functor, FunctorTrait, T, dispatchable_parametric
 
 logger = logging.getLogger(__name__)
 
@@ -71,13 +71,13 @@ def fmap(fn: Callable, wrapper: Wrapper):
 def push(x: Wrapper):
     """Really we want to specify Wrapper[Wrapper[Any]], but I couldn't get type inference to work"""
     inner_wrapper = extract(x)
-    if not isinstance(inner_wrapper, Wrapper) and not isinstance(inner_wrapper, List):
+    if not isinstance(inner_wrapper, Wrapper) and not isinstance(inner_wrapper, list):
         raise TypeError("Can only push type Wrapper[Wrapper[T]]")
     return fmap(lambda val: with_new_value(x, val), inner_wrapper)
 
 
 @dispatchable_parametric
-class RobotWrapper[T](Wrapper):
+class RobotWrapper(Wrapper, Generic[T]):
     name: str
     value: T
 
@@ -101,7 +101,7 @@ def with_new_value(x: RobotWrapper, value):
 
 
 @dispatchable_parametric
-class MultiRobotWrapper[T](Wrapper):
+class MultiRobotWrapper(Wrapper, Generic[T]):
     names: list[str]
     value: T
     _outer_name_to_inner_name: dict = field(default_factory=dict)
@@ -134,7 +134,12 @@ def extract(x: MultiRobotWrapper):
 @overload
 @dispatch
 def with_new_value(x: MultiRobotWrapper, value):
-    return MultiRobotWrapper(x.name, value)
+    return MultiRobotWrapper(
+        x.names,
+        value,
+        x._outer_name_to_inner_name,
+        x._inner_name_to_outer_name,
+    )
 
 
 @overload
@@ -157,7 +162,7 @@ def string_as_nodesymbol(string):
 
 
 @dispatchable_parametric
-class SymbolicContext[T](Wrapper):
+class SymbolicContext(Wrapper, Generic[T]):
     context: dict
     value: T
 
@@ -241,6 +246,18 @@ class DispatchException(Exception):
         )
 
 
+def ensure_domain_dispatch_registered(domain):
+    try:
+        from dsg_pddl.pddl_grounding import MultiRobotPddlDomain, PddlDomain
+    except Exception:
+        return
+
+    if isinstance(domain, (PddlDomain, MultiRobotPddlDomain)):
+        import dsg_pddl.dsg_pddl_grounding  # noqa: F401
+        import dsg_pddl.dsg_pddl_grounding_improved  # noqa: F401
+        import dsg_pddl.dsg_pddl_grounding_multirobot  # noqa: F401
+
+
 @dispatch
 def ground_problem(
     domain: PlanningDomain,
@@ -266,6 +283,7 @@ def make_plan(grounded_problem: Functor, map_context: Any):
 @overload
 @dispatch
 def full_planning_pipeline(plan_request: PlanRequest, map_context: Any, feedback=None):
+    ensure_domain_dispatch_registered(plan_request.domain)
     grounded_problem = ground_problem(
         plan_request.domain,
         map_context,

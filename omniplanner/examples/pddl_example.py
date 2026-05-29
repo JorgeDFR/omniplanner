@@ -6,7 +6,7 @@ import numpy as np
 from dsg_pddl.pddl_grounding import PddlDomain, PddlGoal
 from omniplanner.compile_plan import collect_plans
 from omniplanner.omniplanner import PlanRequest, full_planning_pipeline
-from omniplanner_ros.pddl_planner_ros import compile_plan
+from simple_compile_plan import compile_plan
 from utils import DummyRobotPlanningAdaptor, load_omniplanner_pddl_domain
 from utils_viz import visualize_plan
 

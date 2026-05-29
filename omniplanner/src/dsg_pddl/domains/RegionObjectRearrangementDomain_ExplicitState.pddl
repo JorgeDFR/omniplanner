@@ -1,5 +1,5 @@
-(define (domain test-domain)
-    (:requirements :derived-predicates :typing :adl)
+(define (domain region-object-rearrangement-explicit-state-domain)
+    (:requirements :typing :adl :action-costs)
     (:types
         place dsg_object region - object
     )
@@ -10,7 +10,6 @@
         (connected ?s - place ?t - place)
 
         (at-poi ?p - place)
-        (at-place ?p - place)
         (at-object ?o - dsg_object)
         (in-region ?r - region)
 
@@ -22,32 +21,13 @@
         (holding ?o - dsg_object)
 
         (suspicious ?o - dsg_object)
-        (safe ?o - dsg_object)
         (unsafe-place ?p - place)
     )
 
     (:functions
-        (distance ?s ?t)
+        (distance ?s - place ?t - place)
         (total-cost)
     )
-
-    (:derived (at-place ?p - place)
-        (at-poi ?p))
-
-    (:derived (at-object ?o - dsg_object)
-        (exists (?p - place) (and (at-poi ?p) (object-in-place ?o ?p))))
-
-    (:derived (in-region ?r - region)
-        (exists (?p - place) (and (at-poi ?p) (place-in-region ?p ?r))))
-
-    (:derived (visited-object ?o - dsg_object)
-        (exists (?p - place) (and (visited-place ?p) (object-in-place ?o ?p))))
-
-    (:derived (visited-region ?r - region)
-        (exists (?p - place) (and (visited-place ?p) (place-in-region ?p ?r))))
-
-    (:derived (safe ?o - dsg_object)
-        (not (suspicious ?o)))
 
     (:action goto-poi
         :parameters (?s - place ?t - place)
@@ -65,6 +45,32 @@
                 (not (at-poi ?s))
                 (at-poi ?t)
                 (visited-place ?t)
+                (forall (?r - region)
+                    (when (place-in-region ?s ?r)
+                        (not (in-region ?r))
+                    )
+                )
+                (forall (?r - region)
+                    (when (place-in-region ?t ?r)
+                        (and
+                            (in-region ?r)
+                            (visited-region ?r)
+                        )
+                    )
+                )
+                (forall (?o - dsg_object)
+                    (when (object-in-place ?o ?s)
+                        (not (at-object ?o))
+                    )
+                )
+                (forall (?o - dsg_object)
+                    (when (object-in-place ?o ?t)
+                        (and
+                            (at-object ?o)
+                            (visited-object ?o)
+                        )
+                    )
+                )
                 (increase (total-cost) (distance ?s ?t))
             )
     )
@@ -74,7 +80,7 @@
         :precondition
             (and
                 (not (hand-full))
-                (safe ?o)
+                (not (suspicious ?o))
                 (at-poi ?p)
                 (object-in-place ?o ?p)
             )
@@ -121,6 +127,6 @@
                 (not (unsafe-place ?p))
                 (increase (total-cost) 10)
             )
-        )
+    )
 
 )

@@ -14,6 +14,7 @@ from dsg_pddl.dsg_pddl_grounding import (
     generate_object_containment,
     generate_objects,
     generate_place_containment,
+    get_places_layer,
     implicit_edges_from_layers,
     normalize_symbols,
     simplify,
@@ -35,17 +36,12 @@ logger = logging.getLogger(__name__)
 
 def generate_dense_region_symbol_connectivity_multirobot(G, symbols, robot_states):
     symbol_lookup = {s.symbol: s for s in symbols}
-    try:
-        places_layer = G.get_layer(spark_dsg.DsgLayers.MESH_PLACES)
-    except Exception:
-        places_layer = G.get_layer(20)
+    places_layer = get_places_layer(G)
     edges = []
 
-    # Place <-> Place Edges
     edges += explicit_edges_from_layer(symbol_lookup, G, places_layer)
 
     layer_planner = LayerPlanner(G, spark_dsg.DsgLayers.MESH_PLACES)
-    # Object <-> Object Edges
     edges += implicit_edges_from_layers(
         symbol_lookup,
         G.get_layer(spark_dsg.DsgLayers.OBJECTS),
@@ -55,7 +51,6 @@ def generate_dense_region_symbol_connectivity_multirobot(G, symbols, robot_state
         layer_planner,
     )
 
-    # Object <-> Place Edges
     edges += implicit_edges_from_layers(
         symbol_lookup,
         G.get_layer(spark_dsg.DsgLayers.OBJECTS),
@@ -64,7 +59,18 @@ def generate_dense_region_symbol_connectivity_multirobot(G, symbols, robot_state
         10,
         layer_planner,
     )
-    start_connection_threshold = 50
+    add_robot_start_edges(edges, symbols, symbol_lookup, robot_states, layer_planner)
+    return edges
+
+
+def add_robot_start_edges(
+    edges,
+    symbols,
+    symbol_lookup,
+    robot_states,
+    layer_planner,
+    threshold=50,
+):
     for robot_id in robot_states.keys():
         start_symbol_key = f"pstart{robot_id}"
         if start_symbol_key in symbol_lookup:
@@ -75,10 +81,8 @@ def generate_dense_region_symbol_connectivity_multirobot(G, symbols, robot_state
                 if s.symbol.startswith("pstart"):  # Skip other robot start positions
                     continue
                 d = layer_planner.get_external_distance(start_position, s.position)
-                if d < start_connection_threshold:
+                if d < threshold:
                     edges.append((start_symbol, s, d))
-
-    return edges
 
 
 def nearest_place_for_position(place_symbols: List[PddlSymbol], pos: np.ndarray) -> str:

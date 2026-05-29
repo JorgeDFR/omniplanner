@@ -7,7 +7,7 @@ name = "omniplanner"
 version = "0.0.1"
 description = "Central interface for planning pipeline(s)"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 
 authors = [
     {name = "TODO", email = "todo@email.com"}
@@ -29,3 +29,6 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "*" = ["*.yaml", "*.pddl"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

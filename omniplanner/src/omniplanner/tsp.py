@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass
-from typing import Any, List, overload
+from typing import Any, List
 
 import networkx as nx
 import numpy as np
@@ -182,12 +182,11 @@ class TspGoal:
     robot_id: str
 
 
-@overload
 @dispatch
 def ground_problem(
     domain: TspDomain, dsg: Any, robot_states: dict, goal: TspGoal, feedback: Any = None
 ) -> RobotWrapper[GroundedTspProblem]:
-    logger.info(f"Grounding TSP Problem {domain.domain_name}")
+    logger.info("Grounding TSP Problem")
 
     start = robot_states[goal.robot_id][:2]
 

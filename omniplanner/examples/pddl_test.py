@@ -7,7 +7,7 @@ import numpy as np
 from dsg_pddl.pddl_grounding import PddlDomain, PddlGoal
 from omniplanner.compile_plan import collect_plans
 from omniplanner.omniplanner import PlanRequest, full_planning_pipeline
-from omniplanner_ros.pddl_planner_ros import compile_plan
+from simple_compile_plan import compile_plan
 from utils import (
     DummyRobotPlanningAdaptor, load_omniplanner_pddl_domain,
     build_scalable_dsg,
@@ -35,7 +35,11 @@ logging.getLogger().setLevel(logging.WARN)
 # )
 
 # # Load the PDDL domain
-# domain = PddlDomain(load_omniplanner_pddl_domain("Test.pddl"))
+# domain = PddlDomain(
+#     load_omniplanner_pddl_domain(
+#         "RegionObjectRearrangementDomain_DerivedPredicates.pddl"
+#     )
+# )
 
 # # Build the plan request
 # req = PlanRequest(
@@ -119,7 +123,11 @@ goal = PddlGoal(robot_id="euclid", pddl_goal=pddl_goal)
 # sys.exit()
 
 # Load the PDDL domain
-domain = PddlDomain(load_omniplanner_pddl_domain("Test.pddl"))
+domain = PddlDomain(
+    load_omniplanner_pddl_domain(
+        "RegionObjectRearrangementDomain_DerivedPredicates.pddl"
+    )
+)
 
 # Build the plan request
 req = PlanRequest(
@@ -128,8 +136,16 @@ req = PlanRequest(
     robot_states=robot_poses,
 )
 
-from dsg_pddl.dsg_pddl_grounding_improved import generate_test_pddl_v2
-_, symbols = generate_test_pddl_v2(G, goal.pddl_goal, robot_poses[goal.robot_id][:2])
+from dsg_pddl.dsg_pddl_grounding_improved import (
+    generate_region_rearrangement_pddl_relevant_paths,
+)
+
+_, symbols = generate_region_rearrangement_pddl_relevant_paths(
+    G,
+    goal.pddl_goal,
+    robot_poses[goal.robot_id][:2],
+    domain_name=domain.domain_name,
+)
 simplified_symbols = [s.symbol for s in symbols]
 visualize_dsg(G, nodes_to_show=simplified_symbols)
 

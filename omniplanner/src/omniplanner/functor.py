@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Iterable, List, Set, TypeVar, Union, overload
+from typing import Generic, Iterable, List, Set, TypeVar, Union, overload
 
 from plum import dispatch, parametric
 
@@ -15,12 +15,14 @@ Functor = Union[FunctorTrait, Iterable]
 def generic_inference(K):
     @classmethod
     def inference_function(self, *args):
-        type_params = K.__type_params__
+        type_params = getattr(K, "__type_params__", None)
+        if type_params is None:
+            type_params = getattr(K, "__parameters__", ())
         field_types = [v.type for v in K.__dataclass_fields__.values()]
 
         type_bindings = {}
         for arg, typ in zip(args, field_types):
-            if issubclass(type(typ), TypeVar):
+            if typ in type_params:
                 if typ in type_bindings:
                     if issubclass(type(arg), type_bindings[typ]):
                         continue
@@ -50,6 +52,9 @@ def dispatchable_parametric(f):
     return parametric(generic_inference(dataclass(f)))
 
 
+T = TypeVar("T")
+
+
 @overload
 @dispatch
 def fmap(fn: Callable, iterable: Iterable):
@@ -72,7 +77,7 @@ def fmap(fn: Callable, s: Set):
 if __name__ == "__main__":
 
     @dispatchable_parametric
-    class GenericTest1[T]:
+    class GenericTest1(Generic[T]):
         name: str
         value: T
 

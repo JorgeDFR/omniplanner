@@ -1,104 +1,135 @@
 import logging
 
-import copy
-import spark_dsg
-import numpy as np
-import networkx as nx
-
-from typing import Any
-from plum import dispatch
-from itertools import combinations
 from collections import defaultdict
+from itertools import combinations
+
+import copy
+import networkx as nx
+import numpy as np
+import spark_dsg
 
 from dsg_pddl.pddl_grounding import (
-    PddlGoal,
-    PddlSymbol,
+    GroundedPddlProblem,
     PddlDomain,
+    PddlGoal,
     PddlProblem,
-    GroundedPddlProblem
+    PddlSymbol,
 )
 from dsg_pddl.dsg_pddl_grounding import (
-    symbol_connectivity_to_pddl,
+    add_symbol_positions,
+    explicit_edges_from_layer,
+    extract_all_symbols,
+    generate_objects,
     generate_object_containment,
     generate_place_containment,
-    explicit_edges_from_layer,
     simplify,
-    extract_all_symbols,
     normalize_symbols,
     normalize_symbol,
-    add_symbol_positions,
-    generate_objects
+    symbol_connectivity_to_pddl,
 )
 from dsg_pddl.pddl_utils import (
     extract_facts,
     extract_negated_facts,
-    lisp_string_to_ast
+    lisp_string_to_ast,
 )
 from omniplanner.omniplanner import RobotWrapper
 from omniplanner.tsp import LayerPlanner
 
 logger = logging.getLogger(__name__)
 
+REGION_REARRANGEMENT_DERIVED_DOMAIN = (
+    "region-object-rearrangement-derived-predicates-domain"
+)
+REGION_REARRANGEMENT_EXPLICIT_STATE_DOMAIN = (
+    "region-object-rearrangement-explicit-state-domain"
+)
+REGION_REARRANGEMENT_PROBLEM_NAME = "region-object-rearrangement-improved-problem"
 
-@dispatch
-def ground_problem(
+
+def ground_improved_problem(
     domain: PddlDomain,
     dsg: spark_dsg.DynamicSceneGraph,
     robot_states: dict,
     goal: PddlGoal,
-    feedback: Any = None,
+    feedback=None,
 ) -> RobotWrapper[GroundedPddlProblem]:
     logger.info(f"Grounding PDDL Problem {domain.domain_name}")
 
     start = robot_states[goal.robot_id][:2]
-    match domain.domain_name:
-        case "test-domain":
-            pddl_problem, symbols = generate_test_pddl_v3(dsg, goal.pddl_goal, start)
-        case _:
-            raise NotImplementedError(
-                f"I don't know how to ground a domain of type {domain.domain_name}!"
-            )
+    supported_domains = {
+        REGION_REARRANGEMENT_DERIVED_DOMAIN,
+        REGION_REARRANGEMENT_EXPLICIT_STATE_DOMAIN
+    }
+    if domain.domain_name not in supported_domains:
+        raise NotImplementedError(
+            f"I don't know how to ground a domain of type {domain.domain_name}!"
+        )
+
+    pddl_problem, symbols = generate_region_rearrangement_pddl_compressed_graph(
+        dsg,
+        goal.pddl_goal,
+        start,
+        domain_name=domain.domain_name,
+    )
 
     symbol_dict = {s.symbol: s for s in symbols}
     return RobotWrapper(
         goal.robot_id, GroundedPddlProblem(domain, pddl_problem, symbol_dict)
     )
 
-# -------------------------------------------------------------------------
-# PPDL Problem with all symbols
-# -------------------------------------------------------------------------
-def generate_test_pddl_v1(G, raw_pddl_goal_string, initial_position):
-    problem_name = "test-domain"
-    problem_domain = "test-domain"
 
-    parsed_pddl_goal = lisp_string_to_ast(raw_pddl_goal_string)
-
-    # ideally we check the goal here and see if we can run a more specialized planner based on the simplified goal
-    goal_pddl = simplify(parsed_pddl_goal)
-
-    all_symbols = extract_all_symbols(G)
-    normalize_symbols(all_symbols)
-
-    start_place_symbol = PddlSymbol(
-        "pstart", "place", ["at-poi"], position=initial_position
-    )
-    symbols = [start_place_symbol] + all_symbols
-
-    add_symbol_positions(G, symbols)
-
+def build_region_rearrangement_problem(
+    domain_name,
+    symbols,
+    init,
+    goal_pddl,
+    problem_name=REGION_REARRANGEMENT_PROBLEM_NAME,
+):
     pddl_objects = generate_objects(symbols)
-    init = generate_dense_places_init(G, symbols, start_place_symbol)
-
     problem = PddlProblem(
         name=problem_name,
-        domain=problem_domain,
+        domain=domain_name,
         objects=pddl_objects,
         initial_facts=init,
         goal=goal_pddl,
         optimizing=True,
     )
-
     return problem.to_string(), symbols
+
+
+def make_start_place_symbol(initial_position):
+    return PddlSymbol(
+        "pstart",
+        "place",
+        ["at-poi"],
+        position=initial_position,
+    )
+
+
+# -------------------------------------------------------------------------
+# PDDL problem with all DSG symbols
+# -------------------------------------------------------------------------
+def generate_region_rearrangement_pddl_all_symbols(
+    G,
+    raw_pddl_goal_string,
+    initial_position,
+    domain_name=REGION_REARRANGEMENT_EXPLICIT_STATE_DOMAIN,
+):
+    parsed_pddl_goal = lisp_string_to_ast(raw_pddl_goal_string)
+
+    goal_pddl = simplify(parsed_pddl_goal)
+
+    all_symbols = extract_all_symbols(G)
+    normalize_symbols(all_symbols)
+
+    start_place_symbol = make_start_place_symbol(initial_position)
+    symbols = [start_place_symbol] + all_symbols
+
+    add_symbol_positions(G, symbols)
+
+    init = generate_dense_places_init(G, symbols, start_place_symbol)
+    return build_region_rearrangement_problem(domain_name, symbols, init, goal_pddl)
+
 
 def generate_suspicious_objects(G):
     suspicious_objects = []
@@ -171,15 +202,16 @@ def generate_dense_places_symbol_connectivity(G, symbols):
 
 
 # -------------------------------------------------------------------------
-# PPDL Problem with only the place symbols belonging to the cloests paths
+# PDDL problem with symbols along relevant shortest paths
 # -------------------------------------------------------------------------
-def generate_test_pddl_v2(G, raw_pddl_goal_string, initial_position):
-    problem_name = "test-domain"
-    problem_domain = "test-domain"
-
+def generate_region_rearrangement_pddl_relevant_paths(
+    G,
+    raw_pddl_goal_string,
+    initial_position,
+    domain_name=REGION_REARRANGEMENT_EXPLICIT_STATE_DOMAIN,
+):
     parsed_pddl_goal = lisp_string_to_ast(raw_pddl_goal_string)
 
-    # ideally we check the goal here and see if we can run a more specialized planner based on the simplified goal
     goal_pddl = simplify(parsed_pddl_goal)
 
     goal_symbols, forbidden_symbols = extract_goal_symbols(goal_pddl)
@@ -188,24 +220,16 @@ def generate_test_pddl_v2(G, raw_pddl_goal_string, initial_position):
     normalize_symbols(forbidden_symbols["objects"])
     normalize_symbols(forbidden_symbols["regions"])
 
-    start_place_symbol = PddlSymbol(
-        "pstart", "place", ["at-poi"], position=initial_position
-    )
+    start_place_symbol = make_start_place_symbol(initial_position)
     symbols_of_interest = [start_place_symbol] + goal_symbols
 
-    init, symbols = generate_improved_places_init(G, symbols_of_interest, start_place_symbol, forbidden_symbols)
-    pddl_objects = generate_objects(symbols)
-
-    problem = PddlProblem(
-        name=problem_name,
-        domain=problem_domain,
-        objects=pddl_objects,
-        initial_facts=init,
-        goal=goal_pddl,
-        optimizing=True,
+    init, symbols = generate_improved_places_init(
+        G,
+        symbols_of_interest,
+        start_place_symbol,
+        forbidden_symbols,
     )
-
-    return problem.to_string(), symbols
+    return build_region_rearrangement_problem(domain_name, symbols, init, goal_pddl)
 
 def extract_goal_symbols(pddl_goal):
     place_facts = extract_facts(pddl_goal, "at-poi")
@@ -513,15 +537,16 @@ def generate_improved_places_init(G, symbols_of_interest, start_symbol, forbidde
 
 
 # -------------------------------------------------------------------------
-# PPDL Problem with only most relevant symbols
+# PDDL problem with compressed graph over the most relevant symbols
 # -------------------------------------------------------------------------
-def generate_test_pddl_v3(G, raw_pddl_goal_string, initial_position):
-    problem_name = "test-domain"
-    problem_domain = "test-domain"
-
+def generate_region_rearrangement_pddl_compressed_graph(
+    G,
+    raw_pddl_goal_string,
+    initial_position,
+    domain_name=REGION_REARRANGEMENT_EXPLICIT_STATE_DOMAIN,
+):
     parsed_pddl_goal = lisp_string_to_ast(raw_pddl_goal_string)
 
-    # ideally we check the goal here and see if we can run a more specialized planner based on the simplified goal
     goal_pddl = simplify(parsed_pddl_goal)
 
     goal_symbols, forbidden_symbols = extract_goal_symbols(goal_pddl)
@@ -530,24 +555,16 @@ def generate_test_pddl_v3(G, raw_pddl_goal_string, initial_position):
     normalize_symbols(forbidden_symbols["objects"])
     normalize_symbols(forbidden_symbols["regions"])
 
-    start_place_symbol = PddlSymbol(
-        "pstart", "place", ["at-poi"], position=initial_position
-    )
+    start_place_symbol = make_start_place_symbol(initial_position)
     symbols_of_interest = [start_place_symbol] + goal_symbols
 
-    init, symbols = generate_improved_places_init_v2(G, symbols_of_interest, start_place_symbol, forbidden_symbols)
-    pddl_objects = generate_objects(symbols)
-
-    problem = PddlProblem(
-        name=problem_name,
-        domain=problem_domain,
-        objects=pddl_objects,
-        initial_facts=init,
-        goal=goal_pddl,
-        optimizing=True,
+    init, symbols = generate_improved_places_init_v2(
+        G,
+        symbols_of_interest,
+        start_place_symbol,
+        forbidden_symbols,
     )
-
-    return problem.to_string(), symbols
+    return build_region_rearrangement_problem(domain_name, symbols, init, goal_pddl)
 
 def build_primary_nodes(symbols_of_interest, layer_planner):
     primary_nodes = set()
@@ -701,8 +718,8 @@ def build_compressed_place_graph(
     segments = build_segments_from_paths(
         paths,
         primary_nodes,
-        protected_nodes,
         secondary_nodes,
+        protected_nodes,
     )
 
     compressed_edges = []

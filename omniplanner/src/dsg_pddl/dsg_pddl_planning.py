@@ -6,7 +6,7 @@ import numpy as np
 import spark_dsg
 from plum import dispatch
 
-from dsg_pddl.dsg_pddl_grounding import GroundedPddlProblem, PddlDomain, PddlSymbol
+from dsg_pddl.pddl_grounding import GroundedPddlProblem, PddlDomain, PddlSymbol
 from dsg_pddl.pddl_planning import solve_pddl
 from omniplanner.tsp import LayerPlanner
 
