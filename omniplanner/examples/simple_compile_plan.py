@@ -1,10 +1,9 @@
 from dataclasses import dataclass
 
 import numpy as np
-from plum import dispatch
 
 from dsg_pddl.planning.parameterization import PddlPlan
-from omniplanner.compile_plan import compile_plan
+from omniplanner.compile_plan import collect_plans, compile_plan
 from omniplanner.domains.goto_points import GotoPointsPlan
 from omniplanner.core import MultiRobotWrapper, RobotWrapper, SymbolicContext
 from omniplanner.domains.tsp import FollowPathPlan
@@ -21,6 +20,11 @@ class SimpleActionSequence:
     robot_name: str
     frame: str
     actions: list[SimpleAction]
+
+
+@collect_plans.dispatch
+def collect_plans(plan: SimpleActionSequence):
+    return {plan.robot_name: plan}
 
 
 def _robot_name(adaptor):
@@ -51,17 +55,28 @@ def compile_plan(adaptor, plan_frame: str, plan: PddlPlan):
 
 
 @compile_plan.dispatch
-def compile_plan(adaptor, plan_frame: str, contextualized_plan: SymbolicContext[PddlPlan]):
+def compile_plan(
+    adaptor, plan_frame: str, contextualized_plan: SymbolicContext[PddlPlan]
+):
     plan = contextualized_plan.value
     actions = [
-        SimpleAction(name=symbolic[0], parameters={"symbolic": symbolic, "path": parameters})
-        for symbolic, parameters in zip(plan.symbolic_actions, plan.parameterized_actions)
+        SimpleAction(
+            name=symbolic[0],
+            parameters={"symbolic": symbolic, "path": parameters},
+        )
+        for symbolic, parameters in zip(
+            plan.symbolic_actions, plan.parameterized_actions
+        )
     ]
     return SimpleActionSequence(_robot_name(adaptor), plan_frame, actions)
 
 
 @compile_plan.dispatch
-def compile_plan(adaptors: dict, plan_frame: str, wrapper: MultiRobotWrapper):
+def compile_plan(
+    adaptors: dict,
+    plan_frame: str,
+    wrapper: MultiRobotWrapper[SymbolicContext[PddlPlan]],
+):
     if not isinstance(wrapper.value, SymbolicContext) or not isinstance(
         wrapper.value.value, PddlPlan
     ):
@@ -83,7 +98,11 @@ def compile_plan(adaptors: dict, plan_frame: str, wrapper: MultiRobotWrapper):
         results.append(
             RobotWrapper(
                 outer_name,
-                compile_plan(adaptor, plan_frame, SymbolicContext(wrapper.value.context, robot_plan)),
+                compile_plan(
+                    adaptor,
+                    plan_frame,
+                    SymbolicContext(wrapper.value.context, robot_plan),
+                ),
             )
         )
 

@@ -374,7 +374,6 @@ def test_multirobot_helpers_and_grounding(monkeypatch, tmp_path):
     assert multirobot.filter_goal_for_available_objects("(and (safe o1) (safe o2))", ["o2"]) == "(and (safe o2))"
     assert multirobot.filter_goal_for_available_objects("(and (safe o1))", []) == "(and)"
 
-    monkeypatch.setenv("PDDL_DUMP_DIR", str(tmp_path))
     monkeypatch.setattr(multirobot_impl, "extract_all_symbols", lambda graph: place_symbols[:])
     monkeypatch.setattr(multirobot_impl, "add_symbol_positions", lambda graph, symbols: symbols)
     monkeypatch.setattr(multirobot_impl, "generate_dense_region_init_multirobot", lambda graph, symbols, states: [("at-poi", "spot", "pstartspot")])
@@ -385,7 +384,6 @@ def test_multirobot_helpers_and_grounding(monkeypatch, tmp_path):
     assert "multi-robot-problem" in text
     assert "Spot - robot" in text
     assert any(s.symbol == "pstartSpot" for s in symbols)
-    assert (tmp_path / "mr_region_problem_latest.pddl").exists()
 
 
 def test_dsg_planning_parameterization_and_solve(monkeypatch, tmp_path):

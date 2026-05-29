@@ -215,16 +215,6 @@ def generate_multirobot_region_pddl(
     )
     problem_str = problem.to_string()
 
-    try:
-        debug_output_dir = os.getenv("DEBUG_OUTPUT_DIR", "")
-        os.makedirs(debug_output_dir, exist_ok=True)
-        debug_problem_fn = os.path.join(debug_output_dir, "multi-robot_problem.pddl")
-        with open(debug_problem_fn, "w") as f:
-            f.write(problem_str)
-        logger.debug(f"Saved multi-robot PDDL problem to {debug_problem_fn}")
-    except Exception as e:
-        logger.warning(f"Failed to save multi-robot PDDL problem: {e}")
-
     return problem_str, symbols_of_interest
 
 
