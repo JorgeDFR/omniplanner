@@ -14,7 +14,7 @@ from utils import (
 )
 
 logging.basicConfig()
-logging.getLogger().setLevel(logging.INFO)
+logging.getLogger().setLevel(logging.ERROR)
 
 
 def main():
@@ -57,9 +57,9 @@ def main():
     for action in plan.value.value.symbolic_actions:
         print(action)
 
-    # collected_plan = collect_plans(compile_plan(adaptors, "map", plan))
-    # print("\nCollected plans:")
-    # print(collected_plan)
+    collected_plan = collect_plans(compile_plan(adaptors, "map", plan))
+    print("\nCollected plans:")
+    print(collected_plan)
 
 
 if __name__ == "__main__":

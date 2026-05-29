@@ -27,6 +27,58 @@ def test_simple_action_sequence_can_be_collected():
     assert collect_plans(compiled) == {"spot": compiled}
 
 
+def test_contextualized_robot_pddl_plan_uses_robot_adaptor():
+    plan = PddlPlan(
+        domain=None,
+        symbolic_actions=[("goto-poi", "pstart", "o95")],
+        parameterized_actions=["path"],
+        symbols={},
+    )
+    wrapped_plan = SymbolicContext({}, RobotWrapper("euclid", plan))
+    adaptors = {"euclid": SimpleNamespace(name="euclid-adaptor")}
+
+    compiled = compile_plan(adaptors, "map", wrapped_plan)
+
+    assert compiled.name == "euclid"
+    assert compiled.value.robot_name == "euclid-adaptor"
+    assert compiled.value.actions[0].parameters == {
+        "symbolic": ("goto-poi", "pstart", "o95"),
+        "path": "path",
+    }
+    assert collect_plans(compiled) == {"euclid": compiled.value}
+
+
+def test_simple_robot_wrapper_can_be_collected():
+    wrapped = RobotWrapper(
+        "euclid",
+        compile_plan(
+            SimpleNamespace(name="euclid"),
+            "map",
+            PddlPlan(None, [("goto-poi", "pstart", "o95")], ["path"], {}),
+        ),
+    )
+
+    assert collect_plans(wrapped) == {"euclid": wrapped.value}
+
+
+def test_bare_pddl_plan_compiles_without_dispatching_through_symbolic_context():
+    plan = PddlPlan(
+        domain=None,
+        symbolic_actions=[("goto-poi", "pstart", "o95")],
+        parameterized_actions=["path"],
+        symbols={},
+    )
+    adaptor = SimpleNamespace(name="euclid")
+
+    compiled = compile_plan(adaptor, "map", plan)
+
+    assert compiled.robot_name == "euclid"
+    assert compiled.actions[0].parameters == {
+        "symbolic": ("goto-poi", "pstart", "o95"),
+        "path": "path",
+    }
+
+
 def test_multirobot_pddl_plan_is_split_and_collected_by_robot():
     plan = PddlPlan(
         domain=None,

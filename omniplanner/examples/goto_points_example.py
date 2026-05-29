@@ -1,3 +1,5 @@
+import logging
+
 import numpy as np
 
 from omniplanner.compile_plan import collect_plans
@@ -5,6 +7,9 @@ from omniplanner.core import PlanRequest, full_planning_pipeline
 from omniplanner.domains.goto_points import GotoPointsDomain, GotoPointsGoal
 from simple_compile_plan import compile_plan
 from utils import DummyRobotPlanningAdaptor, build_test_dsg
+
+logging.basicConfig()
+logging.getLogger().setLevel(logging.ERROR)
 
 
 def run_without_dsg():
@@ -43,9 +48,9 @@ def run_without_dsg():
     print("\nPlan from planning domain:")
     print(plan)
 
-    # collected_plans = collect_plans(compile_plan(adaptor, "map", plan))
-    # print("\nCollected plans:")
-    # print(collected_plans)
+    collected_plans = collect_plans(compile_plan(adaptor, "map", plan))
+    print("\nCollected plans:")
+    print(collected_plans)
 
 
 def run_with_dsg():
@@ -71,9 +76,9 @@ def run_with_dsg():
     print("\nPlan from planning domain:")
     print(plan)
 
-    # collected_plans = collect_plans(compile_plan(adaptor, "map", plan))
-    # print("\nCollected plans:")
-    # print(collected_plans)
+    collected_plans = collect_plans(compile_plan(adaptor, "map", plan))
+    print("\nCollected plans:")
+    print(collected_plans)
 
 
 def main():

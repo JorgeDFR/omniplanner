@@ -11,7 +11,7 @@ from simple_compile_plan import compile_plan
 from utils import DummyRobotPlanningAdaptor, load_omniplanner_pddl_domain
 
 logging.basicConfig()
-logging.getLogger().setLevel(logging.INFO)
+logging.getLogger().setLevel(logging.ERROR)
 
 EXAMPLES_DIR = Path(__file__).resolve().parent
 
@@ -35,9 +35,9 @@ def run_pddl_case(graph, adaptors, robot_poses, domain_file, pddl_goal, title):
     print("\nPlan from planning domain:")
     print(plan)
 
-    # collected_plans = collect_plans(compile_plan(adaptors, "map", plan))
-    # print("\nCollected plans:")
-    # print(collected_plans)
+    collected_plans = collect_plans(compile_plan(adaptors, "map", plan))
+    print("\nCollected plans:")
+    print(collected_plans)
 
 
 def main():

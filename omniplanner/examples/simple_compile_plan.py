@@ -27,6 +27,11 @@ def collect_plans(plan: SimpleActionSequence):
     return {plan.robot_name: plan}
 
 
+@collect_plans.dispatch
+def collect_plans(plan: RobotWrapper):
+    return {plan.name: plan.value}
+
+
 def _robot_name(adaptor):
     return getattr(adaptor, "name", getattr(adaptor, "robot_name", str(adaptor)))
 
@@ -51,11 +56,42 @@ def compile_plan(adaptor, plan_frame: str, plan: FollowPathPlan):
 
 @compile_plan.dispatch
 def compile_plan(adaptor, plan_frame: str, plan: PddlPlan):
-    return compile_plan(adaptor, plan_frame, SymbolicContext({}, plan))
+    return _compile_pddl_plan(adaptor, plan_frame, SymbolicContext({}, plan))
+
+
+@compile_plan.dispatch
+def compile_plan(adaptors: dict, plan_frame: str, robot_plan: RobotWrapper):
+    return RobotWrapper(
+        robot_plan.name,
+        compile_plan(adaptors[robot_plan.name], plan_frame, robot_plan.value),
+    )
 
 
 @compile_plan.dispatch
 def compile_plan(
+    adaptors: dict,
+    plan_frame: str,
+    contextualized_plan: SymbolicContext[RobotWrapper],
+):
+    robot_plan = contextualized_plan.value
+    return RobotWrapper(
+        robot_plan.name,
+        compile_plan(
+            adaptors[robot_plan.name],
+            plan_frame,
+            SymbolicContext(contextualized_plan.context, robot_plan.value),
+        ),
+    )
+
+
+@compile_plan.dispatch
+def compile_plan(
+    adaptor, plan_frame: str, contextualized_plan: SymbolicContext[PddlPlan]
+):
+    return _compile_pddl_plan(adaptor, plan_frame, contextualized_plan)
+
+
+def _compile_pddl_plan(
     adaptor, plan_frame: str, contextualized_plan: SymbolicContext[PddlPlan]
 ):
     plan = contextualized_plan.value

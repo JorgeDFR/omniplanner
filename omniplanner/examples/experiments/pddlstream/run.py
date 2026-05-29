@@ -168,7 +168,7 @@ def main():
     )
 
     print_solution(solution)
-    visualize_dsg(G)
+    #visualize_dsg(G)
 
 
 if __name__ == "__main__":

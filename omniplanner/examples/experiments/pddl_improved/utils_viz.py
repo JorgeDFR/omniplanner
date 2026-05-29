@@ -189,21 +189,45 @@ def visualize_plan(
     show_text=True, simplify_legend=False,
     nodes_to_show=None
 ):
+    if isinstance(collected_plan, dict):
+        if len(collected_plan) != 1:
+            raise ValueError("Pass a single robot plan or select one robot from the plan dict")
+        collected_plan = next(iter(collected_plan.values()))
+
     actions = collected_plan.actions
 
-    # --- Print actions ---
-    # print("\n==== Action Sequence ====")
-    # for i, act in enumerate(actions):
-    #     name = act.__class__.__name__
+    def _action_name(act):
+        return getattr(act, "name", act.__class__.__name__)
 
-    #     if name == "Follow":
-    #         print(f"{i+1}: Move until {act.path2d[-1][:2]}")
-    #     elif name in ["Pick", "Place"]:
-    #         print(f"{i+1}: {name} '{act.object_id}' at {act.object_point[:2]}")
-    #     elif name in ["Gaze"]:
-    #         print(f"{i+1}: Inspect '{act.object_id}' at {act.gaze_point[:2]}")
-    #     else:
-    #         print(f"{i+1}: {act}")
+    def _action_params(act):
+        return getattr(act, "parameters", {})
+
+    def _action_path(act):
+        params = _action_params(act)
+        if "path" in params:
+            return np.array(params["path"])
+        if "start" in params and "goal" in params:
+            return np.array([params["start"], params["goal"]])
+        if hasattr(act, "path2d"):
+            return np.array(act.path2d)
+        return None
+
+    def _action_object_id(act):
+        params = _action_params(act)
+        symbolic = params.get("symbolic")
+        if symbolic and len(symbolic) > 1:
+            return symbolic[1]
+        return getattr(act, "object_id", "")
+
+    def _action_point(act):
+        path = _action_path(act)
+        if path is not None and len(path) > 0:
+            return np.array(path[-1][:2])
+        if hasattr(act, "object_point"):
+            return np.array(act.object_point[:2])
+        if hasattr(act, "gaze_point"):
+            return np.array(act.gaze_point[:2])
+        return None
 
     # --- Base DSG ---
     _plot_dsg_base(DSG, title="Robot Plan on DSG Graph",
@@ -219,10 +243,12 @@ def visualize_plan(
     robot_start = None
 
     for act in actions:
-        name = act.__class__.__name__
+        name = _action_name(act)
 
-        if name == "Follow":
-            path = np.array(act.path2d)
+        if name in ["goto-poi"]:
+            path = _action_path(act)
+            if path is None or len(path) == 0:
+                continue
 
             if robot_start is None:
                 robot_start = path[0]
@@ -237,21 +263,38 @@ def visualize_plan(
                      color=color, linewidth=3.0, label=f"Segment {segment_idx+1}")
             segment_idx += 1
 
-        elif name in ["Pick", "Place"]:
-            pos = np.array(act.object_point[:2])
+        elif name in ["pick-object"]:
+            pos = _action_point(act)
+            if pos is None:
+                continue
 
-            label = f"{name} '{act.object_id}'"
+            label = f"Pick '{_action_object_id(act)}'"
             existing_labels = plt.gca().get_legend_handles_labels()[1]
 
             plt.scatter(pos[0], pos[1],
-                        c='red' if name == "Pick" else 'green',
+                        c='red',
                         marker='s', s=100,
                         label=label if label not in existing_labels else "")
 
-        elif name in ["Gaze"]:
-            pos = np.array(act.gaze_point[:2])
+        elif name in ["place-object"]:
+            pos = _action_point(act)
+            if pos is None:
+                continue
 
-            label = f"Inspect '{act.object_id}'"
+            label = f"Plane '{_action_object_id(act)}'"
+            existing_labels = plt.gca().get_legend_handles_labels()[1]
+
+            plt.scatter(pos[0], pos[1],
+                        c='green',
+                        marker='s', s=100,
+                        label=label if label not in existing_labels else "")
+
+        elif name in ["inspect"]:
+            pos = _action_point(act)
+            if pos is None:
+                continue
+
+            label = f"Inspect '{_action_object_id(act)}'"
             existing_labels = plt.gca().get_legend_handles_labels()[1]
 
             plt.scatter(pos[0], pos[1],
