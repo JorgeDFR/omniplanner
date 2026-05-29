@@ -216,20 +216,14 @@ def generate_multirobot_region_pddl(
     problem_str = problem.to_string()
 
     try:
-        dump_dir = os.environ.get(
-            "PDDL_DUMP_DIR", os.path.join(os.getcwd(), "pddl_dumps")
-        )
-        os.makedirs(dump_dir, exist_ok=True)
-        ts = time.strftime("%Y%m%d_%H%M%S")
-        persistent_problem = os.path.join(dump_dir, f"{ts}_mr_region_problem.pddl")
-        latest_problem = os.path.join(dump_dir, "mr_region_problem_latest.pddl")
-        with open(persistent_problem, "w") as f:
+        debug_output_dir = os.getenv("DEBUG_OUTPUT_DIR", "")
+        os.makedirs(debug_output_dir, exist_ok=True)
+        debug_problem_fn = os.path.join(debug_output_dir, "multi-robot_problem.pddl")
+        with open(debug_problem_fn, "w") as f:
             f.write(problem_str)
-        with open(latest_problem, "w") as f:
-            f.write(problem_str)
-        logger.debug(f"Saved multi-robot region PDDL to {persistent_problem}")
+        logger.debug(f"Saved multi-robot PDDL problem to {debug_problem_fn}")
     except Exception as e:
-        logger.warning(f"Failed to persist multi-robot region PDDL dump: {e}")
+        logger.warning(f"Failed to save multi-robot PDDL problem: {e}")
 
     return problem_str, symbols_of_interest
 
@@ -271,7 +265,7 @@ def ground_problem(
     valid_robot_names = [
         name for name, pose in robot_states.items() if pose is not None
     ]
-    wrapper = MultiRobotWrapper(
+    wrapper = MultiRobotWrapper[GroundedPddlProblem](
         valid_robot_names, GroundedPddlProblem(domain, pddl_problem, symbol_dict)
     )
     for outer_name in valid_robot_names:

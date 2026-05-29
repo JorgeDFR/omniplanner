@@ -60,7 +60,7 @@ def ground_problem(
         return node.attributes.position[:2]
 
     referenced_points = np.array([get_loc(symbol) for symbol in goal.goal_points])
-    return RobotWrapper(
+    return RobotWrapper[GroundedGotoPointsProblem](
         goal.robot_id,
         ground_problem(
             domain,

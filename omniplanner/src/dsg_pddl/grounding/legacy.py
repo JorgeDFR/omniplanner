@@ -76,7 +76,7 @@ def ground_problem(
             )
 
     symbol_dict = {s.symbol: s for s in symbols}
-    return RobotWrapper(
+    return RobotWrapper[GroundedPddlProblem](
         goal.robot_id, GroundedPddlProblem(domain, pddl_problem, symbol_dict)
     )
 

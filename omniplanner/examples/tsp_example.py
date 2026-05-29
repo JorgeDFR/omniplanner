@@ -36,9 +36,9 @@ def main():
     print("\nPlan from planning domain:")
     print(plan)
 
-    collected_plans = collect_plans(compile_plan(adaptor, "map", plan))
-    print("\nCollected plans:")
-    print(collected_plans)
+    # collected_plans = collect_plans(compile_plan(adaptor, "map", plan))
+    # print("\nCollected plans:")
+    # print(collected_plans)
 
 
 if __name__ == "__main__":

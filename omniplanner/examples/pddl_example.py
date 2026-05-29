@@ -16,10 +16,10 @@ logging.getLogger().setLevel(logging.INFO)
 EXAMPLES_DIR = Path(__file__).resolve().parent
 
 
-def run_pddl_case(graph, adaptors, robot_poses, title, domain_file, pddl_goal):
+def run_pddl_case(graph, adaptors, robot_poses, domain_file, pddl_goal, title):
     print("")
     print("================================")
-    print(title)
+    print(f"==   {title}   ==")
     print("================================")
     print("")
 
@@ -32,12 +32,12 @@ def run_pddl_case(graph, adaptors, robot_poses, title, domain_file, pddl_goal):
     )
 
     plan = full_planning_pipeline(req, graph)
-    collected_plans = collect_plans(compile_plan(adaptors, "map", plan))
-
     print("\nPlan from planning domain:")
     print(plan)
-    print("\nCollected plans:")
-    print(collected_plans)
+
+    # collected_plans = collect_plans(compile_plan(adaptors, "map", plan))
+    # print("\nCollected plans:")
+    # print(collected_plans)
 
 
 def main():
@@ -52,25 +52,27 @@ def main():
         graph,
         adaptors,
         robot_poses,
-        "==   PDDL Domain (Simple)     ==",
         "GotoObjectDomain.pddl",
         "(and (visited-place p1350) (visited-object o95))",
+        "PDDL Domain (Simple)",
     )
+
     run_pddl_case(
         graph,
         adaptors,
         robot_poses,
-        "==   PDDL Domain (Pick/Place) ==",
         "ObjectRearrangementDomain.pddl",
         "(and (object-in-place o95 p2410))",
+        "PDDL Domain (Pick/Place)",
     )
+
     run_pddl_case(
         graph,
         adaptors,
         robot_poses,
-        "==   PDDL Domain (Regions)    ==",
         "RegionObjectRearrangementDomain.pddl",
         "(and (visited-region r4) (at-place p1396) (object-in-place o95 p2410))",
+        "PDDL Domain (Regions)",
     )
 
 

@@ -23,8 +23,6 @@ from utils import (
 )
 from utils_viz import visualize_dsg, visualize_plan
 
-import dsg_pddl.grounding.improved_region
-
 logging.basicConfig()
 logging.getLogger().setLevel(logging.WARN)
 
@@ -103,28 +101,28 @@ def main():
         robot_states=robot_poses,
     )
 
-    from dsg_pddl.grounding.improved_region import generate_region_rearrangement_pddl_relevant_paths
-    _, symbols = generate_region_rearrangement_pddl_relevant_paths(
-        graph,
-        goal.pddl_goal,
-        robot_poses[goal.robot_id][:2],
-        domain_name=domain.domain_name,
-    )
-    simplified_symbols = [s.symbol for s in symbols]
-    visualize_dsg(graph, nodes_to_show=simplified_symbols)
+    # from dsg_pddl.grounding.improved_region import generate_region_rearrangement_pddl_relevant_paths
+    # _, symbols = generate_region_rearrangement_pddl_relevant_paths(
+    #     graph,
+    #     goal.pddl_goal,
+    #     robot_poses[goal.robot_id][:2],
+    #     domain_name=domain.domain_name,
+    # )
+    # simplified_symbols = [s.symbol for s in symbols]
+    # visualize_dsg(graph, nodes_to_show=simplified_symbols)
 
     start = time.perf_counter()
     plan = full_planning_pipeline(req, graph)
     end = time.perf_counter()
     print(f"\nPlanning took {end - start:.6f} seconds\n")
 
-    collected_plans = collect_plans(compile_plan(adaptors, "map", plan))
-    visualize_plan(
-        collected_plans["euclid"],
-        graph,
-        nodes_to_show=simplified_symbols,
-        simplify_legend=True,
-    )
+    # collected_plans = collect_plans(compile_plan(adaptors, "map", plan))
+    # visualize_plan(
+    #     collected_plans["euclid"],
+    #     graph,
+    #     nodes_to_show=simplified_symbols,
+    #     simplify_legend=True,
+    # )
 
 
 if __name__ == "__main__":

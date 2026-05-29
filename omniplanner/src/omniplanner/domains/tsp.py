@@ -213,7 +213,7 @@ def ground_problem(
             )
     distance_matrix += distance_matrix.T
 
-    return RobotWrapper(
+    return RobotWrapper[GroundedTspProblem](
         goal.robot_id,
         GroundedTspProblem(start, referenced_points, distance_matrix, domain.solver),
     )
