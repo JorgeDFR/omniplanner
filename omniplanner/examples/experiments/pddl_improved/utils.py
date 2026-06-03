@@ -171,150 +171,6 @@ def build_test_dsg():
     return G
 
 
-def generate_building(
-    num_rooms=6,
-    grid_size=(4, 3),
-    seed=None
-):
-    if seed is not None:
-        random.seed(seed)
-        np.random.seed(seed)
-
-    room_max_size = 20
-    room_min_size = 20
-    corridor_width = 4
-
-    grid_w, grid_h = grid_size
-    padding = 2
-    cell_size = room_max_size + 2*padding
-
-    # -------------------------------------------------
-    # Select grid cells for rooms
-    # -------------------------------------------------
-    all_cells = [
-        (gx, gy)
-        for gx in range(grid_w)
-        for gy in range(grid_h)
-    ]
-    selected_cells = random.sample(all_cells, num_rooms)
-
-    # -------------------------------------------------
-    # Generate rooms inside cells
-    # -------------------------------------------------
-    rooms = []
-    room_data = []
-    for gx, gy in selected_cells:
-        cell_x = gx * cell_size
-        cell_y = gy * cell_size
-
-        usable_x1 = cell_x + padding
-        usable_y1 = cell_y + padding
-
-        usable_x2 = cell_x + cell_size - padding
-        usable_y2 = cell_y + cell_size - padding
-
-        max_w = min(room_max_size, usable_x2 - usable_x1)
-        max_h = min(room_max_size, usable_y2 - usable_y1)
-
-        w = random.randint(room_min_size, max_w)
-        h = random.randint(room_min_size, max_h)
-
-        x = random.randint(usable_x1, usable_x2 - w)
-        y = random.randint(usable_y1, usable_y2 - h)
-
-        room = (x, y, x + w, y + h)
-
-        rooms.append(room)
-
-        room_data.append({
-            "grid": (gx, gy),
-            "room": room
-        })
-
-    # -------------------------------------------------
-    # Corridor generation
-    # -------------------------------------------------
-    corridors = []
-    connected = set()
-    directions = [
-        (-1, 0),  # left
-        (1, 0),   # right
-        (0, -1),  # up
-        (0, 1),   # down
-    ]
-    for i, data in enumerate(room_data):
-        gx, gy = data["grid"]
-        r1 = data["room"]
-        for dx, dy in directions:
-            best_candidate = None
-            best_dist = float("inf")
-            for j, other in enumerate(room_data):
-                if i == j:
-                    continue
-
-                ogx, ogy = other["grid"]
-
-                # Must be in desired direction
-                if dx < 0 and ogx >= gx:
-                    continue
-                if dx > 0 and ogx <= gx:
-                    continue
-                if dy < 0 and ogy >= gy:
-                    continue
-                if dy > 0 and ogy <= gy:
-                    continue
-
-                # Prefer nearest in grid space
-                dist = abs(ogx - gx) + abs(ogy - gy)
-                if dist < best_dist:
-                    best_dist = dist
-                    best_candidate = (j, other)
-
-            if best_candidate is None:
-                continue
-
-            j, other = best_candidate
-
-            pair = tuple(sorted((i, j)))
-            if pair in connected:
-                continue
-
-            connected.add(pair)
-            r2 = other["room"]
-
-            def room_center(room):
-                x1, y1, x2, y2 = room
-                return (
-                    (x1 + x2) / 2,
-                    (y1 + y2) / 2
-                )
-            x1, y1 = map(int, room_center(r1))
-            x2, y2 = map(int, room_center(r2))
-
-            # -----------------------------------------
-            # L-shaped corridor
-            # -----------------------------------------
-            horizontal = (
-                min(x1, x2),
-                y1 - corridor_width // 2,
-                max(x1, x2),
-                y1 + corridor_width // 2
-            )
-            vertical = (
-                x2 - corridor_width // 2,
-                min(y1, y2),
-                x2 + corridor_width // 2,
-                max(y1, y2)
-            )
-
-            corridors.append(horizontal)
-            corridors.append(vertical)
-
-    building_space = rooms + corridors
-
-    return building_space
-
-
 def build_scalable_dsg(
     num_nodes=100,
     valid_map_areas=[(0, 0, 10, 10)],
@@ -348,7 +204,7 @@ def build_scalable_dsg(
     # -------------------------------------------------
     valid_area = sum((r[2] - r[0]) * (r[3] - r[1]) for r in valid_map_areas)
     min_dist = 0.8 * math.sqrt(valid_area / num_nodes)
-    edge_threshold = 1.75 * min_dist
+    edge_threshold = 1.5 * min_dist
 
     # -------------------------------------------------
     # 1. Mesh Places (nodes)
@@ -436,7 +292,13 @@ def build_scalable_dsg(
     for mesh_idx, region_id in mesh_to_region.items():
         G.insert_edge(region_nodes[region_id], mesh_nodes[mesh_idx])
 
-    return G
+    data = make_dsg_cache_data(seed, valid_map_areas,
+        num_nodes, positions, mesh_nodes, edge_threshold,
+        num_objects, objects_data,
+        num_regions, centroids, mesh_to_region
+    )
+
+    return G, data
 
 
 def generate_valid_random_nodes(
@@ -592,23 +454,271 @@ def morton_code(x, y, scale=1000):
     return part1by1(x) | (part1by1(y) << 1)
 
 
+def make_dsg_cache_data(seed, valid_map_areas,
+    num_nodes, positions, mesh_nodes, edge_threshold,
+    num_objects, objects_data,
+    num_regions, centroids, mesh_to_region
+):
+    return {
+        "seed": seed,
+        "valid_map_areas": valid_map_areas,
+        "num_nodes": num_nodes,
+        "edge_threshold": edge_threshold,
+        "places": [
+            {
+                "id": i,
+                "position": positions[i].tolist(),
+                "semantic_label": 4,
+            }
+            for i in range(len(mesh_nodes))
+        ],
+        "num_objects": num_objects,
+        "objects": [
+            {
+                "id": i,
+                "position": obj_pos.tolist(),
+                "mesh_idx": node_idx,
+                "semantic_label": semantic_label,
+            }
+            for i, (obj_pos, node_idx, semantic_label) in enumerate(objects_data)
+        ],
+        "num_regions": num_regions,
+        "regions": [
+            {
+                "id": region_id,
+                "position": [
+                    float(centroids[region_id][0]),
+                    float(centroids[region_id][1]),
+                    0.0,
+                ],
+                "semantic_label": region_id,
+            }
+            for region_id in range(num_regions)
+        ],
+        "mesh_to_region": {
+            str(mesh_idx): int(region_id)
+            for mesh_idx, region_id in mesh_to_region.items()
+        },
+    }
+
+
+def build_dsg_from_cache(data):
+    G = spark_dsg.DynamicSceneGraph()
+    G.add_layer(2, "O", spark_dsg.DsgLayers.OBJECTS)
+    G.add_layer(3, "P", spark_dsg.DsgLayers.MESH_PLACES)
+    G.add_layer(4, "R", spark_dsg.DsgLayers.ROOMS)
+
+    mesh_nodes = []
+
+    for place in data["places"]:
+        attr = spark_dsg.PlaceNodeAttributes()
+        attr.position = np.array(place["position"])
+        attr.semantic_label = place["semantic_label"]
+
+        symbol = spark_dsg.NodeSymbol("P", place["id"]).value
+        G.add_node(spark_dsg.DsgLayers.MESH_PLACES, symbol, attr)
+        mesh_nodes.append(symbol)
+
+    positions = [np.array(p["position"]) for p in data["places"]]
+    edge_threshold = data["edge_threshold"]
+
+    for i in range(len(positions)):
+        for j in range(i + 1, len(positions)):
+            if np.linalg.norm(positions[i] - positions[j]) < edge_threshold:
+                G.insert_edge(mesh_nodes[i], mesh_nodes[j])
+
+    for obj in data["objects"]:
+        attr = spark_dsg.ObjectNodeAttributes()
+        attr.position = np.array(obj["position"])
+        attr.semantic_label = obj["semantic_label"]
+
+        symbol = spark_dsg.NodeSymbol("O", obj["id"]).value
+        G.add_node(spark_dsg.DsgLayers.OBJECTS, symbol, attr)
+
+        G.insert_edge(mesh_nodes[obj["mesh_idx"]], symbol)
+
+    region_nodes = []
+
+    for region in data["regions"]:
+        attr = spark_dsg.RoomNodeAttributes()
+        attr.position = np.array(region["position"])
+        attr.semantic_label = region["semantic_label"]
+
+        symbol = spark_dsg.NodeSymbol("R", region["id"]).value
+        G.add_node(spark_dsg.DsgLayers.ROOMS, symbol, attr)
+        region_nodes.append(symbol)
+
+    for mesh_idx, region_id in data["mesh_to_region"].items():
+        G.insert_edge(region_nodes[int(region_id)], mesh_nodes[int(mesh_idx)])
+
+    return G
+
+
+def generate_building(
+    num_rooms=6,
+    grid_size=(4, 3),
+    seed=None
+):
+    if seed is not None:
+        random.seed(seed)
+        np.random.seed(seed)
+
+    room_max_size = 20
+    room_min_size = 20
+    corridor_width = 4
+
+    grid_w, grid_h = grid_size
+    padding = 2
+    cell_size = room_max_size + 2*padding
+
+    # -------------------------------------------------
+    # Select grid cells for rooms
+    # -------------------------------------------------
+    all_cells = [
+        (gx, gy)
+        for gx in range(grid_w)
+        for gy in range(grid_h)
+    ]
+    selected_cells = random.sample(all_cells, num_rooms)
+
+    # -------------------------------------------------
+    # Generate rooms inside cells
+    # -------------------------------------------------
+    rooms = []
+    room_data = []
+    for gx, gy in selected_cells:
+        cell_x = gx * cell_size
+        cell_y = gy * cell_size
+
+        usable_x1 = cell_x + padding
+        usable_y1 = cell_y + padding
+
+        usable_x2 = cell_x + cell_size - padding
+        usable_y2 = cell_y + cell_size - padding
+
+        max_w = min(room_max_size, usable_x2 - usable_x1)
+        max_h = min(room_max_size, usable_y2 - usable_y1)
+
+        w = random.randint(room_min_size, max_w)
+        h = random.randint(room_min_size, max_h)
+
+        x = random.randint(usable_x1, usable_x2 - w)
+        y = random.randint(usable_y1, usable_y2 - h)
+
+        room = (x, y, x + w, y + h)
+
+        rooms.append(room)
+
+        room_data.append({
+            "grid": (gx, gy),
+            "room": room
+        })
+
+    # -------------------------------------------------
+    # Corridor generation
+    # -------------------------------------------------
+    corridors = []
+    connected = set()
+    directions = [
+        (-1, 0),  # left
+        (1, 0),   # right
+        (0, -1),  # up
+        (0, 1),   # down
+    ]
+    for i, data in enumerate(room_data):
+        gx, gy = data["grid"]
+        r1 = data["room"]
+        for dx, dy in directions:
+            best_candidate = None
+            best_dist = float("inf")
+            for j, other in enumerate(room_data):
+                if i == j:
+                    continue
+
+                ogx, ogy = other["grid"]
+
+                # Must be in desired direction
+                if dx < 0 and ogx >= gx:
+                    continue
+                if dx > 0 and ogx <= gx:
+                    continue
+                if dy < 0 and ogy >= gy:
+                    continue
+                if dy > 0 and ogy <= gy:
+                    continue
+
+                # Prefer nearest in grid space
+                dist = abs(ogx - gx) + abs(ogy - gy)
+                if dist < best_dist:
+                    best_dist = dist
+                    best_candidate = (j, other)
+
+            if best_candidate is None:
+                continue
+
+            j, other = best_candidate
+
+            pair = tuple(sorted((i, j)))
+            if pair in connected:
+                continue
+
+            connected.add(pair)
+            r2 = other["room"]
+
+            def room_center(room):
+                x1, y1, x2, y2 = room
+                return (
+                    (x1 + x2) / 2,
+                    (y1 + y2) / 2
+                )
+            x1, y1 = map(int, room_center(r1))
+            x2, y2 = map(int, room_center(r2))
+
+            # -----------------------------------------
+            # L-shaped corridor
+            # -----------------------------------------
+            horizontal = (
+                min(x1, x2),
+                y1 - corridor_width // 2,
+                max(x1, x2),
+                y1 + corridor_width // 2
+            )
+            vertical = (
+                x2 - corridor_width // 2,
+                min(y1, y2),
+                x2 + corridor_width // 2,
+                max(y1, y2)
+            )
+
+            corridors.append(horizontal)
+            corridors.append(vertical)
+
+    building_space = rooms + corridors
+
+    return building_space
+
+
 class Predicate:
     def __init__(self, name: str, arg_types: List[str], can_be_negated=False):
         self.name = name
         self.arg_types = arg_types
         self.can_be_negated = can_be_negated
 
+
 def sample_object(symbols_by_type: Dict[str, List[str]], typ: str):
     return random.choice(symbols_by_type[typ])
+
 
 def ground_predicate(pred: Predicate, symbols_by_type: Dict[str, List[str]]):
     args = [sample_object(symbols_by_type, t) for t in pred.arg_types]
     return f"({pred.name} {' '.join(args)})"
 
+
 def maybe_negate(pred: Predicate, literal: str, negation_prob=0.3):
     if pred.can_be_negated and random.random() < negation_prob:
         return f"(not {literal})"
     return literal
+
 
 def generate_clause(predicates: List[Predicate],
                     symbols_by_type: Dict[str, List[str]],
@@ -666,6 +776,7 @@ def generate_clause(predicates: List[Predicate],
         clause_literals.add(lit_negated)
 
     return f"(and {' '.join(clause_literals)})"
+
 
 def generate_dnf_goal(N: int,
                       K: int,

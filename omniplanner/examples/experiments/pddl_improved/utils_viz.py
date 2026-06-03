@@ -160,7 +160,8 @@ def visualize_dsg(
     DSG,
     show_objects=True, show_regions=True, show_region_edges=False,
     show_text=True,
-    nodes_to_show=None
+    nodes_to_show=None,
+    show=True,
 ):
     _plot_dsg_base(DSG, title="DSG Graph",
                    draw_objects=show_objects,
@@ -169,6 +170,7 @@ def visualize_dsg(
                    draw_text=show_text,
                    nodes_to_show=nodes_to_show)
 
+    fig = plt.gcf()
     ax = plt.gca()
     ax.set_aspect('equal', adjustable='box')
     x_min, x_max = ax.get_xlim()
@@ -180,14 +182,18 @@ def visualize_dsg(
     ax.legend(loc='upper right')
     ax.grid(True)
     plt.tight_layout()
-    plt.show()
+    if show:
+        plt.show()
+
+    return fig
 
 
 def visualize_plan(
     collected_plan, DSG,
     show_objects=True, show_regions=True, show_region_edges=False,
     show_text=True, simplify_legend=False,
-    nodes_to_show=None
+    nodes_to_show=None,
+    show=True,
 ):
     if isinstance(collected_plan, dict):
         if len(collected_plan) != 1:
@@ -303,6 +309,7 @@ def visualize_plan(
                         label=label if label not in existing_labels else "")
 
     # --- Final formatting ---
+    fig = plt.gcf()
     ax = plt.gca()
     ax.set_aspect('equal', adjustable='box')
     x_min, x_max = ax.get_xlim()
@@ -314,4 +321,7 @@ def visualize_plan(
     ax.legend(loc='upper right')
     ax.grid(True)
     plt.tight_layout()
-    plt.show()
+    if show:
+        plt.show()
+
+    return fig

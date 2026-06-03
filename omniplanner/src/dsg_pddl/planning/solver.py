@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from pathlib import Path
 
 from dsg_pddl.core.models import GroundedPddlProblem
 from dsg_pddl.core.parsing import lisp_string_to_ast
@@ -14,6 +15,48 @@ logger = logging.getLogger(__name__)
 
 OPTIMAL_TIMEOUT = float(os.getenv("PDDL_OPTIMAL_TIMEOUT", "10"))
 SUBOPTIMAL_TIMEOUT = float(os.getenv("PDDL_SUBOPTIMAL_TIMEOUT", "60"))
+
+PDDL_OPTIMAL_SOLVER = os.getenv("PDDL_OPTIMAL_SOLVER", "astar_ff").lower()
+PDDL_SUBOPTIMAL_SOLVER = os.getenv("PDDL_SUBOPTIMAL_SOLVER", "lazy_ff").lower()
+
+
+def _optimal_solvers(timeout: float) -> dict[str, str | None]:
+    return {
+        "none": None,
+        "lmcut": f"astar(lmcut(), max_time={timeout})",
+        "astar_ff": f"astar(ff(), max_time={timeout})",
+    }
+
+
+def _suboptimal_solvers(timeout: float) -> dict[str, str | None]:
+    return {
+        "none": None,
+        "lazy_ff": (
+            f"let(hff, ff(), "
+            f"lazy_greedy([hff], preferred=[hff], max_time={timeout}))"
+        ),
+        "wastar_ff": (
+            f"let(hff, ff(), "
+            f"eager_wastar([hff], preferred=[hff], w=2, max_time={timeout}))"
+        ),
+    }
+
+
+def _get_solver_config(kind: str, selected: str, timeout: float) -> str | None:
+    solvers = (
+        _optimal_solvers(timeout)
+        if kind == "optimal"
+        else _suboptimal_solvers(timeout)
+    )
+
+    if selected not in solvers:
+        valid = ", ".join(sorted(solvers))
+        raise ValueError(
+            f"Invalid PDDL_{kind.upper()}_SOLVER={selected!r}. "
+            f"Valid options are: {valid}"
+        )
+
+    return solvers[selected]
 
 
 def _run_fd(problem, domain, search_cmd, timeout, result_container, key):
@@ -69,87 +112,96 @@ def _run_fd(problem, domain, search_cmd, timeout, result_container, key):
 
 
 def solve_pddl(problem: GroundedPddlProblem):
-    """Parallel optimal + suboptimal PDDL solving (race strategy)."""
+    """Configurable optimal + suboptimal PDDL solving."""
 
     # -----------------------
     # Define planners
     # -----------------------
-    # optimal_search = f"astar(lmcut(), max_time={OPTIMAL_TIMEOUT})"
-    optimal_search = f"astar(ff(), max_time={OPTIMAL_TIMEOUT})"
-    # suboptimal_search = "let(hff, ff(), eager_wastar([hff], preferred=[hff], w=2, max_time={SUBOPTIMAL_TIMEOUT}))"
-    suboptimal_search = f"let(hff, ff(), lazy_greedy([hff], preferred=[hff], max_time={SUBOPTIMAL_TIMEOUT}))"
+    optimal_search = _get_solver_config(
+        "optimal",
+        PDDL_OPTIMAL_SOLVER,
+        OPTIMAL_TIMEOUT,
+    )
+
+    suboptimal_search = _get_solver_config(
+        "suboptimal",
+        PDDL_SUBOPTIMAL_SOLVER,
+        SUBOPTIMAL_TIMEOUT,
+    )
 
     # -----------------------
     # Threads
     # -----------------------
     results = {}
+    threads = []
 
-    t_opt = threading.Thread(
-        target=_run_fd,
-        args=(
-            problem,
-            problem.domain,
-            optimal_search,
-            OPTIMAL_TIMEOUT,
-            results,
-            "optimal",
-        ),
-    )
+    if optimal_search is not None:
+        threads.append(
+            threading.Thread(
+                target=_run_fd,
+                args=(
+                    problem,
+                    problem.domain,
+                    optimal_search,
+                    OPTIMAL_TIMEOUT,
+                    results,
+                    "optimal",
+                ),
+            )
+        )
 
-    t_sub = threading.Thread(
-        target=_run_fd,
-        args=(
-            problem,
-            problem.domain,
-            suboptimal_search,
-            SUBOPTIMAL_TIMEOUT,
-            results,
-            "suboptimal",
-        ),
-    )
+    if suboptimal_search is not None:
+        threads.append(
+            threading.Thread(
+                target=_run_fd,
+                args=(
+                    problem,
+                    problem.domain,
+                    suboptimal_search,
+                    SUBOPTIMAL_TIMEOUT,
+                    results,
+                    "suboptimal",
+                ),
+            )
+        )
 
-    start = time.time()
-
-    t_opt.start()
-    t_sub.start()
-
-    t_opt.join()
-    t_sub.join()
-
-    elapsed = time.time() - start
-    logger.debug(f"PDDL solving finished in {elapsed:.2f}s")
-
-    # -----------------------
-    # Selection logic
-    # -----------------------
-    chosen = None
-
-    if results.get("optimal"):
-        logger.debug("Returning OPTIMAL plan")
-        chosen = results["optimal"]
-    elif results.get("suboptimal"):
-        logger.debug("Returning SUBOPTIMAL plan")
-        chosen = results["suboptimal"]
-    else:
-        logger.warning("Planning failed.")
+    if not threads:
+        logger.warning("No PDDL solvers enabled.")
         chosen = []
+    else:
+        start = time.time()
+
+        for t in threads:
+            t.start()
+
+        for t in threads:
+            t.join()
+
+        elapsed = time.time() - start
+        logger.debug(f"PDDL solving finished in {elapsed:.2f}s")
+
+        if results.get("optimal"):
+            logger.debug("Returning OPTIMAL plan")
+            chosen = results["optimal"]
+        elif results.get("suboptimal"):
+            logger.debug("Returning SUBOPTIMAL plan")
+            chosen = results["suboptimal"]
+        else:
+            logger.warning("Planning failed.")
+            chosen = []
 
     # -----------------------
     # Debug output
     # -----------------------
-    debug_output_dir = os.getenv("DEBUG_OUTPUT_DIR", "")
-    debug_problem_fn = os.path.join(debug_output_dir, "problem.pddl")
-    debug_domain_fn = os.path.join(debug_output_dir, "domain.pddl")
-    debug_plan_fn = os.path.join(debug_output_dir, "plan.txt")
+    debug_output_dir = os.getenv("DEBUG_OUTPUT_DIR")
 
-    with open(debug_problem_fn, "w") as fo:
-        fo.write(problem.problem_str)
+    if debug_output_dir:
+        debug_dir = Path(debug_output_dir)
+        debug_dir.mkdir(parents=True, exist_ok=True)
 
-    with open(debug_domain_fn, "w") as fo:
-        fo.write(problem.domain.to_string())
-
-    with open(debug_plan_fn, "w") as fo:
-        fo.writelines(chosen)
+        (debug_dir / "problem.pddl").write_text(problem.problem_str)
+        (debug_dir / "domain.pddl").write_text(problem.domain.to_string())
+        (debug_dir / "plan.txt").write_text("".join(chosen))
 
     # -----------------------
     # Parse plan
