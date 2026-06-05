@@ -13,11 +13,14 @@ from dsg_pddl.core.parsing import lisp_string_to_ast
 logger = logging.getLogger(__name__)
 
 
-OPTIMAL_TIMEOUT = float(os.getenv("PDDL_OPTIMAL_TIMEOUT", "10"))
-SUBOPTIMAL_TIMEOUT = float(os.getenv("PDDL_SUBOPTIMAL_TIMEOUT", "60"))
+def get_solver_env_config():
+    optimal_timeout = float(os.getenv("PDDL_OPTIMAL_TIMEOUT", "10"))
+    suboptimal_timeout = float(os.getenv("PDDL_SUBOPTIMAL_TIMEOUT", "60"))
 
-PDDL_OPTIMAL_SOLVER = os.getenv("PDDL_OPTIMAL_SOLVER", "astar_ff").lower()
-PDDL_SUBOPTIMAL_SOLVER = os.getenv("PDDL_SUBOPTIMAL_SOLVER", "lazy_ff").lower()
+    optimal_solver = os.getenv("PDDL_OPTIMAL_SOLVER", "astar_ff").lower()
+    suboptimal_solver = os.getenv("PDDL_SUBOPTIMAL_SOLVER", "lazy_ff").lower()
+
+    return optimal_solver, optimal_timeout, suboptimal_solver, suboptimal_timeout
 
 
 def _optimal_solvers(timeout: float) -> dict[str, str | None]:
@@ -117,16 +120,19 @@ def solve_pddl(problem: GroundedPddlProblem):
     # -----------------------
     # Define planners
     # -----------------------
+    (pddl_optimal_solver, optimal_timeout,
+     pddl_suboptimal_solver, suboptimal_timeout) = get_solver_env_config()
+
     optimal_search = _get_solver_config(
         "optimal",
-        PDDL_OPTIMAL_SOLVER,
-        OPTIMAL_TIMEOUT,
+        pddl_optimal_solver,
+        optimal_timeout,
     )
 
     suboptimal_search = _get_solver_config(
         "suboptimal",
-        PDDL_SUBOPTIMAL_SOLVER,
-        SUBOPTIMAL_TIMEOUT,
+        pddl_suboptimal_solver,
+        suboptimal_timeout,
     )
 
     # -----------------------
@@ -143,7 +149,7 @@ def solve_pddl(problem: GroundedPddlProblem):
                     problem,
                     problem.domain,
                     optimal_search,
-                    OPTIMAL_TIMEOUT,
+                    optimal_timeout,
                     results,
                     "optimal",
                 ),
@@ -158,7 +164,7 @@ def solve_pddl(problem: GroundedPddlProblem):
                     problem,
                     problem.domain,
                     suboptimal_search,
-                    SUBOPTIMAL_TIMEOUT,
+                    suboptimal_timeout,
                     results,
                     "suboptimal",
                 ),

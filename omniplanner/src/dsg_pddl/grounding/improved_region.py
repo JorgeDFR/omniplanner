@@ -3,6 +3,7 @@ import logging
 from collections import defaultdict
 from itertools import combinations
 
+import os
 import copy
 import networkx as nx
 import numpy as np
@@ -50,6 +51,20 @@ REGION_REARRANGEMENT_EXPLICIT_STATE_DOMAIN = (
 REGION_REARRANGEMENT_PROBLEM_NAME = "region-object-rearrangement-improved-problem"
 
 
+
+def get_region_sampler():
+    sampler = os.getenv("PDDL_SAMPLER", "compressed").lower()
+
+    if sampler == "compressed":
+        return generate_region_rearrangement_pddl_compressed_graph
+    if sampler == "paths":
+        return generate_region_rearrangement_pddl_relevant_paths
+    if sampler == "all":
+        return generate_region_rearrangement_pddl_all_symbols
+
+    raise ValueError(f"Invalid PDDL_SAMPLER={sampler!r}")
+
+
 def ground_improved_problem(
     domain: PddlDomain,
     dsg: spark_dsg.DynamicSceneGraph,
@@ -69,7 +84,9 @@ def ground_improved_problem(
             f"I don't know how to ground a domain of type {domain.domain_name}!"
         )
 
-    pddl_problem, symbols = generate_region_rearrangement_pddl_compressed_graph(
+    generate_symbols = get_region_sampler()
+
+    pddl_problem, symbols = generate_symbols(
         dsg,
         goal.pddl_goal,
         start,

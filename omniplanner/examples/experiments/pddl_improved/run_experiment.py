@@ -100,6 +100,7 @@ def parse_args():
         help=f"Output directory (default: {default_output_dir})",
     )
 
+    # Setup ENV variables
     args = parser.parse_args()
 
     if args.pddl_solver == "lmcut" and args.pddl_domain == "derived":
@@ -111,6 +112,10 @@ def parse_args():
     configure_pddl_solver_env(
         solver=args.pddl_solver,
         timeout=args.pddl_timeout,
+    )
+
+    configure_pddl_sampler_env(
+        sampler=args.pddl_sampler,
     )
 
     return args
@@ -144,6 +149,14 @@ def save_config(args, output_dir):
             f,
             indent=2,
         )
+
+
+def configure_pddl_sampler_env(sampler: str) -> None:
+    valid_samplers = {"all", "paths", "compressed"}
+    if sampler not in valid_samplers:
+        raise ValueError(f"Invalid PDDL sampler {sampler!r}")
+
+    os.environ["PDDL_SAMPLER"] = sampler
 
 
 def configure_pddl_solver_env(solver: str, timeout: float) -> None:

@@ -287,7 +287,7 @@ def visualize_plan(
             if pos is None:
                 continue
 
-            label = f"Plane '{_action_object_id(act)}'"
+            label = f"Place '{_action_object_id(act)}'"
             existing_labels = plt.gca().get_legend_handles_labels()[1]
 
             plt.scatter(pos[0], pos[1],
