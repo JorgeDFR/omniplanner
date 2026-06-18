@@ -30,7 +30,9 @@ SEED_COLUMNS = [
 METRICS = {
     "sampling_time_sec": "Sampler time (s)",
     "planning_time_sec": "Planning time (s)",
+    "total_time_sec": "Total execution time (s)",
     "num_sampled_symbols": "Number of sampled symbols",
+    "plan_cost": "Plan cost",
 }
 
 STATS = [
@@ -50,6 +52,7 @@ INTEGER_COLUMNS = {
     "graph_seed",
     "goal_seed",
     "num_sampled_symbols",
+    "plan_cost",
     "num_runs",
 }
 
@@ -179,7 +182,7 @@ def metric_table(
                 fmt(
                     row[stat],
                     precision,
-                    metric if metric == "num_sampled_symbols" else stat,
+                    metric,
                 )
                 for stat in STATS
             ],
@@ -325,14 +328,45 @@ def main():
         if col in df_success.columns and df_success[col].nunique(dropna=True) > 1
     ]
 
-    if not possible_vary_options:
-        raise RuntimeError("No parameter has more than one successful value to analyze.")
+    single_value_vary_options = [
+        col
+        for col in VARY_OPTIONS
+        if col in df_success.columns and df_success[col].nunique(dropna=True) == 1
+    ]
 
-    vary = ask_choice(
-        "varying parameter",
-        possible_vary_options,
-        prompt_prefix="Choose parameter to analyze",
-    )
+    if possible_vary_options:
+        vary = ask_choice(
+            "varying parameter",
+            possible_vary_options,
+            prompt_prefix="Choose parameter to analyze",
+        )
+    else:
+        if single_value_vary_options:
+            vary = single_value_vary_options[0]
+
+            console.print(
+                Panel(
+                    f"No parameter has more than one successful value.\n\n"
+                    f"Using [bold]{vary}[/bold] as the grouping parameter anyway, "
+                    f"so results will be printed with one row.",
+                    title="Single-value results",
+                    border_style="yellow",
+                )
+            )
+        else:
+            vary = "__all_results__"
+            df_success[vary] = "all"
+            df_all[vary] = "all"
+
+            console.print(
+                Panel(
+                    "No configuration parameter values were available.\n\n"
+                    "Using a synthetic grouping column so results will be printed "
+                    "with one row.",
+                    title="Single-value results",
+                    border_style="yellow",
+                )
+            )
 
     static_cols = [
         c for c in STATIC_OPTIONS
@@ -379,12 +413,12 @@ def main():
         console.print(
             Panel(
                 f"The selected configuration has only one value for "
-                f"[bold]{vary}[/bold]: {filtered_success[vary].iloc[0]}",
-                title="No comparable results",
+                f"[bold]{vary}[/bold]: {filtered_success[vary].iloc[0]}\n\n"
+                "Continuing anyway and printing one-row result tables.",
+                title="Single-row results",
                 border_style="yellow",
             )
         )
-        return
 
     selected_total_runs = len(filtered_all)
 

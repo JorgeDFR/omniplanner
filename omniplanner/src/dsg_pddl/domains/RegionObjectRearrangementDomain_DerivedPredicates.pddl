@@ -9,7 +9,6 @@
         (place-in-region ?p - place ?r - region)
         (connected ?s - place ?t - place)
 
-        (at-poi ?p - place)
         (at-place ?p - place)
         (at-object ?o - dsg_object)
         (in-region ?r - region)
@@ -31,14 +30,11 @@
         (total-cost)
     )
 
-    (:derived (at-place ?p - place)
-        (at-poi ?p))
-
     (:derived (at-object ?o - dsg_object)
-        (exists (?p - place) (and (at-poi ?p) (object-in-place ?o ?p))))
+        (exists (?p - place) (and (at-place ?p) (object-in-place ?o ?p))))
 
     (:derived (in-region ?r - region)
-        (exists (?p - place) (and (at-poi ?p) (place-in-region ?p ?r))))
+        (exists (?p - place) (and (at-place ?p) (place-in-region ?p ?r))))
 
     (:derived (visited-object ?o - dsg_object)
         (exists (?p - place) (and (visited-place ?p) (object-in-place ?o ?p))))
@@ -53,7 +49,7 @@
         :parameters (?s - place ?t - place)
         :precondition
             (and
-                (at-poi ?s)
+                (at-place ?s)
                 (not (unsafe-place ?t))
                 (or
                     (connected ?s ?t)
@@ -62,8 +58,8 @@
             )
         :effect
             (and
-                (not (at-poi ?s))
-                (at-poi ?t)
+                (not (at-place ?s))
+                (at-place ?t)
                 (visited-place ?t)
                 (increase (total-cost) (distance ?s ?t))
             )
@@ -75,7 +71,7 @@
             (and
                 (not (hand-full))
                 (safe ?o)
-                (at-poi ?p)
+                (at-place ?p)
                 (object-in-place ?o ?p)
             )
         :effect
@@ -92,7 +88,7 @@
         :precondition
             (and
                 (holding ?o)
-                (at-poi ?p)
+                (at-place ?p)
             )
         :effect
             (and
@@ -109,7 +105,7 @@
             (and
                 (suspicious ?o)
                 (object-in-place ?o ?p)
-                (at-poi ?t)
+                (at-place ?t)
                 (or
                     (connected ?p ?t)
                     (connected ?t ?p)
@@ -121,6 +117,6 @@
                 (not (unsafe-place ?p))
                 (increase (total-cost) 10)
             )
-        )
+    )
 
 )

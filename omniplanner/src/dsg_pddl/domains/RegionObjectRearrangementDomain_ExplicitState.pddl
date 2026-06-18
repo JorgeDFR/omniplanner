@@ -9,7 +9,7 @@
         (place-in-region ?p - place ?r - region)
         (connected ?s - place ?t - place)
 
-        (at-poi ?p - place)
+        (at-place ?p - place)
         (at-object ?o - dsg_object)
         (in-region ?r - region)
 
@@ -33,7 +33,7 @@
         :parameters (?s - place ?t - place)
         :precondition
             (and
-                (at-poi ?s)
+                (at-place ?s)
                 (not (unsafe-place ?t))
                 (or
                     (connected ?s ?t)
@@ -42,8 +42,8 @@
             )
         :effect
             (and
-                (not (at-poi ?s))
-                (at-poi ?t)
+                (not (at-place ?s))
+                (at-place ?t)
                 (visited-place ?t)
                 (forall (?r - region)
                     (when (place-in-region ?s ?r)
@@ -81,7 +81,7 @@
             (and
                 (not (hand-full))
                 (not (suspicious ?o))
-                (at-poi ?p)
+                (at-place ?p)
                 (object-in-place ?o ?p)
             )
         :effect
@@ -98,7 +98,7 @@
         :precondition
             (and
                 (holding ?o)
-                (at-poi ?p)
+                (at-place ?p)
             )
         :effect
             (and
@@ -115,7 +115,7 @@
             (and
                 (suspicious ?o)
                 (object-in-place ?o ?p)
-                (at-poi ?t)
+                (at-place ?t)
                 (or
                     (connected ?p ?t)
                     (connected ?t ?p)

@@ -122,7 +122,7 @@ def make_start_place_symbol(initial_position):
     return PddlSymbol(
         "pstart",
         "place",
-        ["at-poi"],
+        ["at-place"],
         position=initial_position,
     )
 
@@ -148,7 +148,7 @@ def generate_region_rearrangement_pddl_all_symbols(
 
     add_symbol_positions(G, symbols)
 
-    init = generate_dense_places_init(G, symbols, start_place_symbol)
+    init = generate_dense_places_init(G, symbols, start_place_symbol, domain_name)
     return build_region_rearrangement_problem(domain_name, symbols, init, goal_pddl)
 
 
@@ -159,6 +159,7 @@ def generate_suspicious_objects(G):
         # if not node.attributes.suspicious:
         #     continue
 
+        # 10/50 -> 20 %
         if node.attributes.semantic_label in tuple(range(0, 40 + 1)):
             continue
 
@@ -169,16 +170,39 @@ def generate_suspicious_objects(G):
     return suspicious_objects
 
 
-def generate_dense_places_init(G, symbols_of_interest, start_symbol):
-    connectivity = generate_dense_places_symbol_connectivity(G, symbols_of_interest)
+def generate_dense_places_init(
+    G,
+    symbols_of_interest,
+    start_symbol,
+    domain_name
+):
+    symbol_lookup = {s.symbol: s for s in symbols_of_interest}
+
+    connectivity = generate_dense_places_symbol_connectivity(G, symbols_of_interest, symbol_lookup)
     connectivity_pddl = symbol_connectivity_to_pddl(connectivity)
 
-    initial_pddl = [("=", ("total-cost",), 0), ("at-poi", start_symbol.symbol)]
+    initial_pddl = [
+        ("=", ("total-cost",), 0),
+        ("at-place", start_symbol.symbol)
+    ]
     initial_pddl += connectivity_pddl
 
-    containment_relations = generate_object_containment(G)
-    containment_relations += generate_place_containment(G)
-    initial_pddl += containment_relations
+    object_containment_relations = generate_object_containment(G)
+    place_containment_relations = generate_place_containment(G)
+    initial_pddl += object_containment_relations
+    initial_pddl += place_containment_relations
+
+    suspicious_objects = generate_suspicious_objects(G)
+    relevant_suspicious_objects, relevant_unsafe_places = process_suspicious_objects(
+        suspicious_objects,
+        object_containment_relations,
+        symbols_of_interest,
+        symbol_lookup,
+    )
+    initial_pddl += suspicious_objects
+    initial_pddl += relevant_suspicious_objects
+    if domain_name == REGION_REARRANGEMENT_EXPLICIT_STATE_DOMAIN:
+        initial_pddl += relevant_unsafe_places
 
     return initial_pddl
 
@@ -200,9 +224,7 @@ def add_start_place_connection(
             edges.append((start_symbol, s, int(np.ceil(dist))))
 
 
-def generate_dense_places_symbol_connectivity(G, symbols):
-    symbol_lookup = {s.symbol: s for s in symbols}
-
+def generate_dense_places_symbol_connectivity(G, symbols, symbol_lookup):
     try:
         places_layer = G.get_layer(spark_dsg.DsgLayers.MESH_PLACES)
     except Exception:
@@ -249,12 +271,12 @@ def generate_region_rearrangement_pddl_relevant_paths(
         symbols_of_interest,
         start_place_symbol,
         forbidden_symbols,
+        domain_name,
     )
     return build_region_rearrangement_problem(domain_name, symbols, init, goal_pddl)
 
 def extract_goal_symbols(pddl_goal):
-    place_facts = extract_facts(pddl_goal, "at-poi")
-    place_facts += extract_facts(pddl_goal, "at-place")
+    place_facts = extract_facts(pddl_goal, "at-place")
     place_facts += extract_facts(pddl_goal, "visited-place")
     place_facts_extra = extract_facts(pddl_goal, "object-in-place")
 
@@ -390,7 +412,7 @@ def build_forbidden_nodes(forbidden_symbols, layer_planner):
 def process_suspicious_objects(
     suspicious_objects,
     object_containment_relations,
-    improved_symbols_of_interest,
+    symbols_of_interest,
     symbol_lookup,
 ):
     containment_map = {}
@@ -407,13 +429,13 @@ def process_suspicious_objects(
         place_symbol = containment_map[sus_object_symbol]
         place = symbol_lookup[place_symbol]
 
-        if sus_object in improved_symbols_of_interest:
+        if sus_object in symbols_of_interest:
             relevant_suspicious_objects.append(suspicious_object)
             relevant_unsafe_places.append(("unsafe-place", place_symbol))
             continue
 
-        if place in improved_symbols_of_interest:
-            improved_symbols_of_interest.append(sus_object)
+        if place in symbols_of_interest:
+            symbols_of_interest.append(sus_object)
             relevant_suspicious_objects.append(suspicious_object)
             relevant_unsafe_places.append(("unsafe-place", place_symbol))
 
@@ -481,7 +503,13 @@ def filter_containment_relations(
     return containment_relations
 
 
-def generate_improved_places_init(G, symbols_of_interest, start_symbol, forbidden_symbols):
+def generate_improved_places_init(
+    G,
+    symbols_of_interest,
+    start_symbol,
+    forbidden_symbols,
+    domain_name,
+):
     object_containment_relations = generate_object_containment(G)
     place_containment_relations = generate_place_containment(G)
     suspicious_objects = generate_suspicious_objects(G)
@@ -545,13 +573,14 @@ def generate_improved_places_init(G, symbols_of_interest, start_symbol, forbidde
 
     initial_pddl = [
         ("=", ("total-cost",), 0),
-        ("at-poi", start_symbol.symbol),
+        ("at-place", start_symbol.symbol),
     ]
 
     initial_pddl += connectivity_pddl
     initial_pddl += containment_relations
     initial_pddl += relevant_suspicious_objects
-    initial_pddl += relevant_unsafe_places
+    if domain_name == REGION_REARRANGEMENT_EXPLICIT_STATE_DOMAIN:
+        initial_pddl += relevant_unsafe_places
 
     return initial_pddl, improved_symbols_of_interest
 
@@ -584,6 +613,7 @@ def generate_region_rearrangement_pddl_compressed_graph(
         symbols_of_interest,
         start_place_symbol,
         forbidden_symbols,
+        domain_name,
     )
     return build_region_rearrangement_problem(domain_name, symbols, init, goal_pddl)
 
@@ -690,15 +720,14 @@ def extract_protected_nodes(
     return unsafe_place_nodes
 
 
-def build_segments_from_paths(paths, primary_nodes, secondary_nodes, protected_nodes):
-    important = set(primary_nodes) | set(secondary_nodes) | set(protected_nodes)
+def build_segments_from_paths(paths, important_nodes):
     segments = {}
     lookup = {}
     for path in paths.values():
         current = [path[0]]
         for node in path[1:]:
             current.append(node)
-            if node in important:
+            if node in important_nodes:
                 start = current[0]
                 end = current[-1]
                 if start != end:
@@ -736,11 +765,11 @@ def build_compressed_place_graph(
         primary_nodes,
     )
 
+    important_nodes = set(primary_nodes) | set(secondary_nodes) | set(protected_nodes)
+
     segments = build_segments_from_paths(
         paths,
-        primary_nodes,
-        secondary_nodes,
-        protected_nodes,
+        important_nodes,
     )
 
     compressed_edges = []
@@ -753,8 +782,6 @@ def build_compressed_place_graph(
             p2 = n2.attributes.position
             total_dist += np.linalg.norm(p1 - p2)
         compressed_edges.append((a, b, int(np.ceil(total_dist)), path))
-
-    important_nodes = set(primary_nodes) | set(secondary_nodes)
 
     return important_nodes, compressed_edges
 
@@ -784,6 +811,7 @@ def generate_improved_places_init_v2(
     symbols_of_interest,
     start_symbol,
     forbidden_symbols,
+    domain_name,
 ):
     object_containment_relations = generate_object_containment(G)
     place_containment_relations = generate_place_containment(G)
@@ -875,11 +903,12 @@ def generate_improved_places_init_v2(
 
     initial_pddl = [
         ("=", ("total-cost",), 0),
-        ("at-poi", start_symbol.symbol),
+        ("at-place", start_symbol.symbol),
     ]
     initial_pddl += connectivity_pddl
     initial_pddl += containment_relations
     initial_pddl += relevant_suspicious_objects
-    initial_pddl += relevant_unsafe_places
+    if domain_name == REGION_REARRANGEMENT_EXPLICIT_STATE_DOMAIN:
+        initial_pddl += relevant_unsafe_places
 
     return initial_pddl, improved_symbols_of_interest

@@ -2,6 +2,7 @@
 import csv
 import json
 import time
+import math
 import itertools
 import argparse
 import subprocess
@@ -10,7 +11,7 @@ from pathlib import Path
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Run batches of DSG-PDDL scalability experiments"
+        description="Run batches of 3DSG-PDDL experiments"
     )
 
     parser.add_argument(
@@ -21,15 +22,42 @@ def parse_args():
     )
 
     parser.add_argument(
+        "--experiment-kind",
+        choices=["synthetic", "real"],
+        default="synthetic",
+        help=(
+            "Type of single-experiment script to run. Use 'synthetic' for the "
+            "scalability script that accepts --num-nodes/--num-objects/"
+            "--num-regions/--graph-seed. Use 'real' for the real-DSG script."
+        ),
+    )
+
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=Path("batch_results"),
     )
 
+    # Synthetic DSG experiment options.
     parser.add_argument("--num-nodes", type=int, nargs="+", default=[100, 200, 400])
     parser.add_argument("--num-objects", type=int, nargs="+", default=[20, 50])
     parser.add_argument("--num-regions", type=int, nargs="+", default=[4, 6])
+
+    parser.add_argument(
+        "--graph-scales",
+        type=float,
+        nargs="+",
+        default=None,
+        help=(
+            "Optional graph size scales for synthetic experiments. When provided, "
+            "num-nodes, num-objects, and num-regions must each have exactly one "
+            "value. Each scale is applied to all three base values."
+        ),
+    )
+
     parser.add_argument("--graph-seeds", type=int, nargs="+", default=[1])
+
+    # Shared goal/PDDL options.
     parser.add_argument("--goal-seeds", type=int, nargs="+", default=[1, 2, 3])
 
     parser.add_argument("--goal-disjunctions", type=int, nargs="+", default=[1])
@@ -60,14 +88,55 @@ def parse_args():
     parser.add_argument("--skip-existing", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
 
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    if args.experiment_kind == "synthetic":
+        if args.graph_scales is not None:
+            if len(args.num_nodes) != 1:
+                parser.error("--graph-scales requires exactly one --num-nodes value")
+            if len(args.num_objects) != 1:
+                parser.error("--graph-scales requires exactly one --num-objects value")
+            if len(args.num_regions) != 1:
+                parser.error("--graph-scales requires exactly one --num-regions value")
+            if any(scale <= 0 for scale in args.graph_scales):
+                parser.error("--graph-scales values must be positive")
+    else:
+        if args.graph_scales is not None:
+            parser.error("--graph-scales is only valid with --experiment-kind synthetic")
+
+    return args
+
+
+def scaled_int(value, scale):
+    return max(1, int(math.floor(value * scale + 0.5)))
+
+
+def scale_tag(scale):
+    return f"{scale:g}".replace(".", "p")
 
 
 def experiment_name(cfg):
-    return (
+    if cfg["experiment_kind"] == "real":
+        return (
+            f"real_dsg"
+            f"_d{cfg['goal_disjunctions']}"
+            f"_c{cfg['goal_conjunctions']}"
+            f"_goal{cfg['goal_seed']}"
+            f"_{cfg['pddl_domain']}"
+            f"_{cfg['pddl_sampler']}"
+            f"_{cfg['pddl_solver']}"
+        )
+
+    name = (
         f"n{cfg['num_nodes']}"
         f"_o{cfg['num_objects']}"
         f"_r{cfg['num_regions']}"
+    )
+
+    if cfg.get("graph_scale") is not None:
+        name += f"_s{scale_tag(cfg['graph_scale'])}"
+
+    name += (
         f"_graph{cfg['graph_seed']}"
         f"_d{cfg['goal_disjunctions']}"
         f"_c{cfg['goal_conjunctions']}"
@@ -77,12 +146,37 @@ def experiment_name(cfg):
         f"_{cfg['pddl_solver']}"
     )
 
+    return name
 
-def make_grid(args):
-    keys = [
-        "num_nodes",
-        "num_objects",
-        "num_regions",
+
+def make_size_grid(args):
+    if args.graph_scales is None:
+        keys = ["num_nodes", "num_objects", "num_regions"]
+        values = [args.num_nodes, args.num_objects, args.num_regions]
+
+        for combo in itertools.product(*values):
+            yield dict(zip(keys, combo))
+
+        return
+
+    base_num_nodes = args.num_nodes[0]
+    base_num_objects = args.num_objects[0]
+    base_num_regions = args.num_regions[0]
+
+    for scale in args.graph_scales:
+        yield {
+            "num_nodes": scaled_int(base_num_nodes, scale),
+            "num_objects": scaled_int(base_num_objects, scale),
+            "num_regions": scaled_int(base_num_regions, scale),
+            "graph_scale": scale,
+            "base_num_nodes": base_num_nodes,
+            "base_num_objects": base_num_objects,
+            "base_num_regions": base_num_regions,
+        }
+
+
+def make_synthetic_grid(args):
+    static_keys = [
         "graph_seed",
         "goal_disjunctions",
         "goal_conjunctions",
@@ -92,10 +186,7 @@ def make_grid(args):
         "pddl_solver",
     ]
 
-    values = [
-        args.num_nodes,
-        args.num_objects,
-        args.num_regions,
+    static_values = [
         args.graph_seeds,
         args.goal_disjunctions,
         args.goal_conjunctions,
@@ -105,24 +196,75 @@ def make_grid(args):
         args.pddl_solvers,
     ]
 
-    for combo in itertools.product(*values):
-        cfg = dict(zip(keys, combo))
+    for size_cfg in make_size_grid(args):
+        for combo in itertools.product(*static_values):
+            cfg = {
+                "experiment_kind": "synthetic",
+                **size_cfg,
+                **dict(zip(static_keys, combo)),
+            }
 
-        # Match your single-run script restriction.
+            # Match the single-run script restriction.
+            if cfg["pddl_solver"] == "lmcut" and cfg["pddl_domain"] == "derived":
+                continue
+
+            yield cfg
+
+
+def make_real_grid(args):
+    static_keys = [
+        "goal_disjunctions",
+        "goal_conjunctions",
+        "goal_seed",
+        "pddl_domain",
+        "pddl_sampler",
+        "pddl_solver",
+    ]
+
+    static_values = [
+        args.goal_disjunctions,
+        args.goal_conjunctions,
+        args.goal_seeds,
+        args.pddl_domains,
+        args.pddl_samplers,
+        args.pddl_solvers,
+    ]
+
+    for combo in itertools.product(*static_values):
+        cfg = {
+            "experiment_kind": "real",
+            **dict(zip(static_keys, combo)),
+        }
+
+        # Match the single-run script restriction.
         if cfg["pddl_solver"] == "lmcut" and cfg["pddl_domain"] == "derived":
             continue
 
         yield cfg
 
 
+def make_grid(args):
+    if args.experiment_kind == "real":
+        yield from make_real_grid(args)
+    else:
+        yield from make_synthetic_grid(args)
+
+
 def command_for(args, cfg):
-    return [
+    cmd = [
         "python",
         str(args.script),
-        "--num-nodes", str(cfg["num_nodes"]),
-        "--num-objects", str(cfg["num_objects"]),
-        "--num-regions", str(cfg["num_regions"]),
-        "--graph-seed", str(cfg["graph_seed"]),
+    ]
+
+    if cfg["experiment_kind"] == "synthetic":
+        cmd.extend([
+            "--num-nodes", str(cfg["num_nodes"]),
+            "--num-objects", str(cfg["num_objects"]),
+            "--num-regions", str(cfg["num_regions"]),
+            "--graph-seed", str(cfg["graph_seed"]),
+        ])
+
+    cmd.extend([
         "--goal-disjunctions", str(cfg["goal_disjunctions"]),
         "--goal-conjunctions", str(cfg["goal_conjunctions"]),
         "--goal-seed", str(cfg["goal_seed"]),
@@ -131,7 +273,9 @@ def command_for(args, cfg):
         "--pddl-solver", cfg["pddl_solver"],
         "--pddl-timeout", str(args.pddl_timeout),
         "--output-dir", str(args.output_dir),
-    ]
+    ])
+
+    return cmd
 
 
 def append_jsonl(path, row):
@@ -169,7 +313,7 @@ def main():
     rows = []
     grid = list(make_grid(args))
 
-    print(f"Running {len(grid)} experiments")
+    print(f"Running {len(grid)} {args.experiment_kind} experiments")
 
     for i, cfg in enumerate(grid, start=1):
         name = experiment_name(cfg)
@@ -187,6 +331,8 @@ def main():
                 **single_results,
             }
             rows.append(row)
+            append_jsonl(summary_jsonl, row)
+            write_csv(summary_csv, rows)
             continue
 
         cmd = command_for(args, cfg)
@@ -199,8 +345,11 @@ def main():
                 **cfg,
                 "experiment": name,
                 "status": "dry_run",
+                "command": " ".join(cmd),
             }
             rows.append(row)
+            append_jsonl(summary_jsonl, row)
+            write_csv(summary_csv, rows)
             continue
 
         start = time.perf_counter()

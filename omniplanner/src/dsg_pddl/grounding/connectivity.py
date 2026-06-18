@@ -14,10 +14,11 @@ def symbol_connectivity_to_pddl(connectivity):
 
         connected = ("connected", s, t)
         distance = ("=", ("distance", s, t), d)
-        distance_rev = ("=", ("distance", t, s), d)
-
         connections_init.append(connected)
         connections_init.append(distance)
+
+        # TODO: The reverse distance is not required by the compressed sampler
+        distance_rev = ("=", ("distance", t, s), d)
         connections_init.append(distance_rev)
 
     return connections_init

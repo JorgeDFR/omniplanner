@@ -1,13 +1,12 @@
 
 import numpy as np
-import matplotlib.cm as cm
 import matplotlib.pyplot as plt
 
 import spark_dsg
 
 
-def _setup_plot(title="DSG Graph"):
-    plt.figure(figsize=(12, 10))
+def _setup_plot(title="Synthetic 3D Scene Graph"):
+    plt.figure(figsize=(12, 10))  #plt.figure(figsize=(9, 7))
     plt.title(title)
     plt.xlabel("X")
     plt.ylabel("Y")
@@ -46,7 +45,7 @@ def _plot_mesh_places(DSG, draw_text, node_filter=None):
     if node_positions:
         node_positions = np.array(node_positions)
         plt.scatter(node_positions[:, 0], node_positions[:, 1],
-                    c="black", s=20, alpha=0.6, label="DSG (Places)")
+                    c="black", s=20, alpha=0.6, label="Places")
 
     # edges
     for src in valid_nodes:
@@ -77,7 +76,7 @@ def _plot_objects(DSG, draw_text, node_filter=None):
         node_positions = np.array(node_positions)
         plt.scatter(node_positions[:, 0], node_positions[:, 1],
                     c="blue", marker='^', s=50, alpha=0.6,
-                    label="DSG (Objects)")
+                    label="Objects")
 
 
 def _plot_regions(DSG, draw_edges, draw_text, node_filter=None):
@@ -108,7 +107,7 @@ def _plot_regions(DSG, draw_edges, draw_text, node_filter=None):
             plt.text(center[0] + 0.2, center[1] - 0.2,
                     node.id, fontsize=8, color="red")
 
-        label = "DSG (Regions)" if not added_label else None
+        label = "Regions" if not added_label else None
 
         rect = plt.Rectangle(
             bb_min, bb_dim[0], bb_dim[1],
@@ -132,7 +131,7 @@ def _plot_regions(DSG, draw_edges, draw_text, node_filter=None):
 
 
 def _plot_dsg_base(
-    DSG, title="DSG Graph",
+    DSG, title="Synthetic 3D Scene Graph",
     draw_objects=True,
     draw_regions=True,
     draw_region_edges=False,
@@ -163,7 +162,7 @@ def visualize_dsg(
     nodes_to_show=None,
     show=True,
 ):
-    _plot_dsg_base(DSG, title="DSG Graph",
+    _plot_dsg_base(DSG, title="Synthetic 3D Scene Graph",
                    draw_objects=show_objects,
                    draw_regions=show_regions,
                    draw_region_edges=show_region_edges,
@@ -176,8 +175,9 @@ def visualize_dsg(
     x_min, x_max = ax.get_xlim()
     y_min, y_max = ax.get_ylim()
     x_pad = 0.2 * (x_max - x_min)
+    y_pad = 0.0 * (y_max - y_min)
     ax.set_xlim(x_min, x_max + x_pad)
-    ax.set_ylim(y_min, y_max)
+    ax.set_ylim(y_min, y_max + y_pad)
 
     ax.legend(loc='upper right')
     ax.grid(True)
@@ -236,7 +236,7 @@ def visualize_plan(
         return None
 
     # --- Base DSG ---
-    _plot_dsg_base(DSG, title="Robot Plan on DSG Graph",
+    _plot_dsg_base(DSG, title="Robot Plan on 3DSG",
                    draw_objects=show_objects,
                    draw_regions=show_regions,
                    draw_region_edges=show_region_edges,
@@ -244,7 +244,7 @@ def visualize_plan(
                    nodes_to_show=nodes_to_show)
 
     # --- Plan overlay ---
-    cmap = cm.get_cmap('tab10')
+    cmap = plt.get_cmap("tab10")
     segment_idx = 0
     robot_start = None
 
@@ -317,6 +317,20 @@ def visualize_plan(
     x_pad = 0.2 * (x_max - x_min)
     ax.set_xlim(x_min, x_max + x_pad)
     ax.set_ylim(y_min, y_max)
+
+    # scale = 1.5
+    # ax.title.set_fontsize(ax.title.get_fontsize() * scale)
+    # ax.xaxis.label.set_fontsize(ax.xaxis.label.get_fontsize() * scale)
+    # ax.yaxis.label.set_fontsize(ax.yaxis.label.get_fontsize() * scale)
+    # ax.tick_params(axis='both',
+    #             labelsize=ax.xaxis.get_ticklabels()[0].get_fontsize() * scale)
+
+    # legend = ax.legend(loc='upper right', markerscale=scale)
+    # for text in legend.get_texts():
+    #     text.set_fontsize(text.get_fontsize() * scale)
+    # legend.get_title().set_fontsize(
+    #     legend.get_title().get_fontsize() * scale
+    # )
 
     ax.legend(loc='upper right')
     ax.grid(True)

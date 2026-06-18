@@ -4,7 +4,7 @@ set -euo pipefail
 OUTPUT_DIR="/home/user/workspace/output/batch_results"
 
 echo "============================================================"
-echo " DSG-PDDL batch experiment"
+echo " 3DSG-PDDL batch experiment"
 echo "============================================================"
 echo
 echo "Output directory: ${OUTPUT_DIR}"
@@ -24,7 +24,7 @@ echo "Existing completed runs will be skipped."
 echo
 
 python run_batch_experiments.py \
-  --script run_experiment.py \
+  --script run_experiment_synthetic.py \
   --output-dir "${OUTPUT_DIR}" \
   --num-nodes 100 200 400 800 \
   --num-objects 50 \
