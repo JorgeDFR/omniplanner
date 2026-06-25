@@ -1,5 +1,5 @@
 (define (domain region-object-rearrangement-derived-predicates-domain)
-    (:requirements :derived-predicates :typing :adl)
+    (:requirements :derived-predicates :typing :adl :action-costs)
     (:types
         place dsg_object region - object
     )
@@ -26,7 +26,7 @@
     )
 
     (:functions
-        (distance ?s ?t)
+        (distance ?s - place ?t - place)
         (total-cost)
     )
 
