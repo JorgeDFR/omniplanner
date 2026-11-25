@@ -24,6 +24,7 @@ from dsg_pddl.grounding.containment import (
     generate_object_containment,
     generate_place_containment,
 )
+from dsg_pddl.grounding.dsg_access import get_places_layer
 from dsg_pddl.grounding.legacy import simplify
 from dsg_pddl.grounding.symbols import (
     add_symbol_positions,
@@ -74,7 +75,9 @@ def ground_improved_problem(
 ) -> RobotWrapper[GroundedPddlProblem]:
     logger.info(f"Grounding PDDL Problem {domain.domain_name}")
 
-    start = robot_states[goal.robot_id][:2]
+    start = robot_states.get(goal.robot_id)
+    if start is None:
+        raise ValueError(f"No pose for robot {goal.robot_id}")
     supported_domains = {
         REGION_REARRANGEMENT_DERIVED_DOMAIN,
         REGION_REARRANGEMENT_EXPLICIT_STATE_DOMAIN
@@ -123,7 +126,7 @@ def make_start_place_symbol(initial_position):
         "pstart",
         "place",
         ["at-place"],
-        position=initial_position,
+        position=np.asarray(initial_position[:2]),
     )
 
 
@@ -191,6 +194,9 @@ def generate_dense_places_init(
     place_containment_relations = generate_place_containment(G)
     initial_pddl += object_containment_relations
     initial_pddl += place_containment_relations
+    initial_pddl += interaction_facts(
+        G, symbols_of_interest, object_containment_relations, start_symbol,
+    )
 
     suspicious_objects = generate_suspicious_objects(G)
     relevant_suspicious_objects, relevant_unsafe_places = process_suspicious_objects(
@@ -199,10 +205,8 @@ def generate_dense_places_init(
         symbols_of_interest,
         symbol_lookup,
     )
-    initial_pddl += suspicious_objects
     initial_pddl += relevant_suspicious_objects
-    if domain_name == REGION_REARRANGEMENT_EXPLICIT_STATE_DOMAIN:
-        initial_pddl += relevant_unsafe_places
+    initial_pddl += relevant_unsafe_places
 
     return initial_pddl
 
@@ -216,7 +220,7 @@ def add_start_place_connection(
 ):
     start_position = start_symbol.position
     for s in symbols:
-        if s.symbol == "pstart":
+        if s.symbol == "pstart" or s.layer != "place":
             continue
 
         dist = layer_planner.get_external_distance(start_position, s.position)
@@ -332,6 +336,64 @@ def add_object_related_places(
         if (object_symbol in forbidden_symbols["objects"]
             and place_symbol not in forbidden_symbols["places"]):
             forbidden_symbols["places"].append(place_symbol)
+
+
+def retain_adjacent_stances(symbols, containment, layer_planner, symbol_lookup):
+    """Retain approaches to the goal places and relevant object anchors."""
+    known = {s.symbol for s in symbols}
+    anchors = {s.symbol for s in symbols if s.layer == "place"}
+    anchors.update(place for _, obj, place in containment if obj in known)
+
+    retained = set(symbols)
+    for anchor in sorted(anchors):
+        node = layer_planner.symbol_to_node_value.get(anchor)
+        if node is not None:
+            for neighbor in layer_planner.nx_layer.neighbors(node):
+                symbol = symbol_lookup[layer_planner.node_value_to_symbol[neighbor]]
+                if symbol not in retained:
+                    symbols.append(symbol)
+                    retained.add(symbol)
+
+
+def interaction_facts(G, symbols, containment, start):
+    """Use original place edges and 3D geometry for local interactions."""
+    places = {
+        normalize_symbol(node.id.str(True)): node
+        for node in get_places_layer(G).nodes
+    }
+    by_id = {node.id.value: name for name, node in places.items()}
+    positions = {name: node.attributes.position for name, node in places.items()}
+    known = {symbol.symbol for symbol in symbols}
+    objects = {
+        normalize_symbol(node.id.str(True)): node.attributes.position
+        for node in G.get_layer(spark_dsg.DsgLayers.OBJECTS).nodes
+    }
+    objects_at = defaultdict(list)
+    for predicate, obj, place in containment:
+        if predicate == "object-in-place":
+            objects_at[place].append(obj)
+    start_anchor = min(places, key=lambda name: np.linalg.norm(
+        positions[name][:2] - start.position
+    ))
+    positions[start.symbol] = np.r_[start.position, positions[start_anchor][2]]
+    for symbol in symbols:
+        symbol.position_3d = positions.get(symbol.symbol, objects.get(symbol.symbol))
+    reach = float(os.getenv("PDDL_MANIPULATION_REACH_M", "0.75"))
+    if not np.isfinite(reach) or reach <= 0:
+        raise ValueError("PDDL_MANIPULATION_REACH_M must be finite and positive")
+    facts = []
+    for target in sorted(known & places.keys()):
+        stances = {by_id[node] for node in places[target].siblings() if node in by_id}
+        if start_anchor in stances and not np.allclose(start.position, positions[target][:2]):
+            stances.add(start.symbol)
+        for stance in sorted((stances & known) - {target}):
+            facts.append(("adjacent", target, stance))
+            if np.linalg.norm(positions[target] - positions[stance]) <= reach:
+                facts.append(("place-reachable", target, stance))
+            for obj in objects_at[target]:
+                if np.linalg.norm(objects[obj] - positions[stance]) <= reach:
+                    facts.append(("initial-pick-reachable", obj, stance))
+    return facts
 
 
 def add_region_related_places(
@@ -539,6 +601,9 @@ def generate_improved_places_init(
         symbol_lookup,
     )
     forbidden_nodes = build_forbidden_nodes(forbidden_symbols, layer_planner)
+    retain_adjacent_stances(
+        symbols_of_interest, object_containment_relations, layer_planner, symbol_lookup,
+    )
     improved_symbols_of_interest = add_relevant_place_nodes(
         symbols_of_interest,
         forbidden_nodes,
@@ -578,9 +643,11 @@ def generate_improved_places_init(
 
     initial_pddl += connectivity_pddl
     initial_pddl += containment_relations
+    initial_pddl += interaction_facts(
+        G, improved_symbols_of_interest, containment_relations, start_symbol,
+    )
     initial_pddl += relevant_suspicious_objects
-    if domain_name == REGION_REARRANGEMENT_EXPLICIT_STATE_DOMAIN:
-        initial_pddl += relevant_unsafe_places
+    initial_pddl += relevant_unsafe_places
 
     return initial_pddl, improved_symbols_of_interest
 
@@ -842,6 +909,9 @@ def generate_improved_places_init_v2(
         layer_planner,
         symbol_lookup,
     )
+    retain_adjacent_stances(
+        symbols_of_interest, object_containment_relations, layer_planner, symbol_lookup,
+    )
     primary_nodes = build_primary_nodes(
         symbols_of_interest,
         layer_planner,
@@ -907,8 +977,10 @@ def generate_improved_places_init_v2(
     ]
     initial_pddl += connectivity_pddl
     initial_pddl += containment_relations
+    initial_pddl += interaction_facts(
+        G, improved_symbols_of_interest, containment_relations, start_symbol,
+    )
     initial_pddl += relevant_suspicious_objects
-    if domain_name == REGION_REARRANGEMENT_EXPLICIT_STATE_DOMAIN:
-        initial_pddl += relevant_unsafe_places
+    initial_pddl += relevant_unsafe_places
 
     return initial_pddl, improved_symbols_of_interest

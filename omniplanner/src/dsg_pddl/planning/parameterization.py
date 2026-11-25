@@ -87,7 +87,18 @@ def make_plan(grounded_problem: GroundedPddlProblem, map_context: Any) -> PddlPl
     layer_planner = LayerPlanner(map_context, spark_dsg.DsgLayers.MESH_PLACES)
     last_pose = np.zeros(2)
     multirobot = "multirobot" in grounded_problem.domain.domain_name
+    placed_targets = {}
     for p in plan:
+        if not multirobot and len(p) == 4 and p[0] in ("inspect", "pick-object", "place-object"):
+            obj, target, stance = (grounded_problem.symbols[name] for name in p[1:])
+            if p[0] == "place-object":
+                point = target.position_3d
+                placed_targets[obj.symbol] = point
+            else:
+                point = placed_targets.get(obj.symbol, obj.position_3d)
+            if stance.position_3d is not None and point is not None:
+                parameterized_plan.append([stance.position_3d, point])
+                continue
         match p[0]:
             case "goto-poi":
                 if multirobot:

@@ -8,6 +8,10 @@
         (object-in-place ?o - dsg_object ?p - place)
         (place-in-region ?p - place ?r - region)
         (connected ?s - place ?t - place)
+        (adjacent ?p - place ?t - place)
+        (initial-pick-reachable ?o - dsg_object ?t - place)
+        (place-reachable ?p - place ?t - place)
+        (placed ?o - dsg_object)
 
         (at-place ?p - place)
         (at-object ?o - dsg_object)
@@ -66,13 +70,18 @@
     )
 
     (:action pick-object
-        :parameters (?o - dsg_object ?p - place)
+        :parameters (?o - dsg_object ?p - place ?t - place)
         :precondition
             (and
                 (not (hand-full))
                 (safe ?o)
-                (at-place ?p)
+                (at-place ?t)
+                (adjacent ?p ?t)
                 (object-in-place ?o ?p)
+                (or
+                    (and (not (placed ?o)) (initial-pick-reachable ?o ?t))
+                    (and (placed ?o) (place-reachable ?p ?t))
+                )
             )
         :effect
             (and
@@ -84,17 +93,20 @@
     )
 
     (:action place-object
-        :parameters (?o - dsg_object ?p - place)
+        :parameters (?o - dsg_object ?p - place ?t - place)
         :precondition
             (and
                 (holding ?o)
-                (at-place ?p)
+                (at-place ?t)
+                (adjacent ?p ?t)
+                (place-reachable ?p ?t)
             )
         :effect
             (and
                 (not (holding ?o))
                 (not (hand-full))
                 (object-in-place ?o ?p)
+                (placed ?o)
                 (increase (total-cost) 10)
             )
     )
@@ -106,10 +118,7 @@
                 (suspicious ?o)
                 (object-in-place ?o ?p)
                 (at-place ?t)
-                (or
-                    (connected ?p ?t)
-                    (connected ?t ?p)
-                )
+                (adjacent ?p ?t)
             )
         :effect
             (and

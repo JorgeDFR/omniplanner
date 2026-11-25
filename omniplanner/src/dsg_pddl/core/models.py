@@ -26,6 +26,7 @@ class PddlSymbol:
     layer: str  # object, place, etc
     unary_predicates_to_apply: list[str]
     position: Optional[np.ndarray] = None
+    position_3d: Optional[np.ndarray] = None
 
     def __eq__(self, other):
         return self.symbol == other.symbol

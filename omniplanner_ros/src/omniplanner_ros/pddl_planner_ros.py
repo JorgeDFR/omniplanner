@@ -152,6 +152,9 @@ def compile_pddl_plan(
     for symbolic_action, parameters in zip(
         plan.symbolic_actions, plan.parameterized_actions
     ):
+        if symbolic_action[0] in ("pick-object", "place-object"):
+            obj = symbolic_action[1]
+            object_class = context[obj].get("semantic_label", "") if obj in context else ""
         match symbolic_action[0]:
             case "goto-poi":
                 actions.append(Follow(frame=frame_id, path2d=parameters))
@@ -168,11 +171,6 @@ def compile_pddl_plan(
                 )
             case "pick-object":
                 robot_point, pick_point = parameters
-                object_class = ""
-                if symbolic_action[1] in context:
-                    attrs = context[symbolic_action[1]]
-                    if "semantic_label" in attrs:
-                        object_class = attrs["semantic_label"]
                 actions.append(
                     Pick(
                         frame=frame_id,
