@@ -351,8 +351,8 @@ def test_improved_pddl_generators_with_stubbed_init(monkeypatch):
     monkeypatch.setattr(improved_impl, "extract_all_symbols", lambda graph: all_symbols[:])
     monkeypatch.setattr(improved_impl, "add_symbol_positions", lambda graph, symbols: symbols)
     monkeypatch.setattr(improved_impl, "generate_dense_places_init", lambda graph, symbols, start, *args: [("at-place", start.symbol)])
-    monkeypatch.setattr(improved_impl, "generate_improved_places_init", lambda graph, symbols, start, *args: ([("at-place", start.symbol)], symbols))
-    monkeypatch.setattr(improved_impl, "generate_improved_places_init_v2", lambda graph, symbols, start, *args: ([("at-place", start.symbol)], symbols))
+    monkeypatch.setattr(improved_impl, "generate_improved_places_init", lambda graph, symbols, start, *args, **kwargs: ([("at-place", start.symbol)], symbols))
+    monkeypatch.setattr(improved_impl, "generate_improved_places_init_v2", lambda graph, symbols, start, *args, **kwargs: ([("at-place", start.symbol)], symbols))
 
     for generator in (
         improved.generate_region_rearrangement_pddl_all_symbols,

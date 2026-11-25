@@ -8,6 +8,7 @@ import pytest
 import spark_dsg
 
 from dsg_pddl.core.models import PddlDomain, PddlGoal, RegionMissionState
+from dsg_pddl.grounding import improved_region
 from dsg_pddl.grounding.improved_region import ground_improved_problem
 from dsg_pddl.planning.parameterization import make_plan
 from dsg_pddl.planning.solver import PddlSolveError
@@ -84,3 +85,30 @@ def test_reports_unsolvable_when_no_stance_is_in_reach(graph, domain, monkeypatc
     monkeypatch.setenv("PDDL_MANIPULATION_REACH_M", "0.1")
     with pytest.raises(PddlSolveError, match="unsolvable"):
         solve(graph, domain, RegionMissionState())
+
+
+@pytest.mark.parametrize("excluded", ("visited-place p1", "visited-object o1", "visited-region r1"))
+def test_negated_visits_do_not_add_compressed_route_endpoints(graph, monkeypatch, excluded):
+    room = spark_dsg.RoomNodeAttributes()
+    room.position = (.5, 0., 0.)
+    room_id = spark_dsg.NodeSymbol("R", 1).value
+    assert graph.add_node(spark_dsg.DsgLayers.ROOMS, room_id, room)
+    assert graph.insert_edge(spark_dsg.NodeSymbol("P", 1).value, room_id)
+    original = improved_region.build_shortest_paths
+
+    def check_endpoints(graph, primary, forbidden, layer):
+        assert {layer.node_value_to_symbol[node] for node in primary} == {"p0", "p3", "p5"}
+        assert {layer.node_value_to_symbol[node] for node in forbidden} == {"p1"}
+        paths = original(graph, primary, forbidden, layer)
+        assert len(paths) == 3
+        return paths
+
+    monkeypatch.setenv("PDDL_SAMPLER", "compressed")
+    monkeypatch.setattr(improved_region, "build_shortest_paths", check_endpoints)
+    goal = f"(and (visited-place p5) (at-place p3) (not ({excluded})))"
+    plan = solve(graph, "ExplicitState", RegionMissionState(), goal)
+    assert excluded.split()[1] in plan.symbols
+    assert all(action[0] == "goto-poi" for action in plan.symbolic_actions)
+    reached = {tuple(point) for route in plan.parameterized_actions for point in route}
+    assert (1., .5) in reached
+    assert (.5, 0.) not in reached

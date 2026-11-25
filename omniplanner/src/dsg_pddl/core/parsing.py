@@ -16,27 +16,26 @@ def extract_facts(goal, predicate):
 
 
 def extract_negated_facts(goal, predicate, negated=False):
-    match goal:
-        case tuple() | list():
-            if len(goal) == 0:
-                return ()
+    return _extract_facts_with_polarity(goal, predicate, negated, True)
 
-            head = goal[0]
 
-            # If we hit a NOT, flip the negation context
-            if head == "not" and len(goal) > 1:
-                return extract_negated_facts(goal[1], predicate, not negated)
+def extract_positive_facts(goal, predicate):
+    return _extract_facts_with_polarity(goal, predicate, False, False)
 
-            # If this is the predicate and we're under negation, collect it.
-            elif head == predicate and negated:
-                return (goal,)
 
-            else:
-                children = (extract_negated_facts(g, predicate, negated) for g in goal)
-                return reduce(lambda x, y: x + y, children, ())
-
-        case _:
-            return ()
+def _extract_facts_with_polarity(goal, predicate, negated, required_polarity):
+    if not isinstance(goal, (tuple, list)) or not goal:
+        return ()
+    head = goal[0]
+    if head == "not" and len(goal) > 1:
+        return _extract_facts_with_polarity(goal[1], predicate, not negated, required_polarity)
+    if head == predicate:
+        return (goal,) if negated == required_polarity else ()
+    return tuple(
+        fact
+        for child in goal
+        for fact in _extract_facts_with_polarity(child, predicate, negated, required_polarity)
+    )
 
 
 def tokenize_lisp(string):

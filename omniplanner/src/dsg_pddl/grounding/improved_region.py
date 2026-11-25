@@ -34,6 +34,7 @@ from dsg_pddl.grounding.symbols import (
 from dsg_pddl.core.parsing import (
     extract_facts,
     extract_negated_facts,
+    extract_positive_facts,
     lisp_string_to_ast,
 )
 from omniplanner.core.wrappers import RobotWrapper
@@ -323,11 +324,7 @@ def generate_region_rearrangement_pddl_relevant_paths(
 
     goal_pddl = simplify(parsed_pddl_goal)
 
-    goal_symbols, forbidden_symbols = extract_goal_symbols(goal_pddl)
-    normalize_symbols(goal_symbols)
-    normalize_symbols(forbidden_symbols["places"])
-    normalize_symbols(forbidden_symbols["objects"])
-    normalize_symbols(forbidden_symbols["regions"])
+    goal_symbols, forbidden_symbols, declarations = extract_routing_goal(goal_pddl)
 
     start_place_symbol = make_start_place_symbol(initial_position)
     symbols_of_interest = [start_place_symbol] + goal_symbols
@@ -340,23 +337,39 @@ def generate_region_rearrangement_pddl_relevant_paths(
         domain_name,
         state,
         routes,
+        declarations=declarations,
+        needs_stances=any(
+            extract_facts(goal_pddl, predicate)
+            for predicate in ("object-in-place", "holding", "hand-full", "placed", "suspicious")
+        ),
     )
     return build_region_rearrangement_problem(domain_name, symbols, init, goal_pddl)
 
-def extract_goal_symbols(pddl_goal):
+def extract_routing_goal(pddl_goal):
+    symbols, forbidden = extract_goal_symbols(pddl_goal, include_negated_visits=False)
+    normalize_symbols(symbols)
+    for excluded in forbidden.values():
+        normalize_symbols(excluded)
+    # The PDDL goal still needs declarations for symbols used only in exclusions.
+    declarations = sorted(set().union(*forbidden.values()) - set(symbols))
+    return symbols, forbidden, declarations
+
+
+def extract_goal_symbols(pddl_goal, *, include_negated_visits=True):
+    visit_facts = extract_facts if include_negated_visits else extract_positive_facts
     place_facts = extract_facts(pddl_goal, "at-place")
-    place_facts += extract_facts(pddl_goal, "visited-place")
+    place_facts += visit_facts(pddl_goal, "visited-place")
     place_facts_extra = extract_facts(pddl_goal, "object-in-place")
 
     object_facts = extract_facts(pddl_goal, "at-object")
-    object_facts += extract_facts(pddl_goal, "visited-object")
+    object_facts += visit_facts(pddl_goal, "visited-object")
     object_facts += extract_facts(pddl_goal, "suspicious")
     object_facts += extract_facts(pddl_goal, "holding")
     object_facts += extract_facts(pddl_goal, "safe")
     object_facts += extract_facts(pddl_goal, "object-in-place")
 
     region_facts = extract_facts(pddl_goal, "in-region")
-    region_facts += extract_facts(pddl_goal, "visited-region")
+    region_facts += visit_facts(pddl_goal, "visited-region")
 
     place_symbols = {PddlSymbol(f[1], "place", []) for f in place_facts}
     place_symbols |= {PddlSymbol(f[2], "place", []) for f in place_facts_extra}
@@ -604,6 +617,9 @@ def generate_improved_places_init(
     domain_name,
     state=None,
     routes=None,
+    *,
+    declarations=(),
+    needs_stances=True,
 ):
     object_containment_relations, suspicious_objects = effective_scene(G, state)
     place_containment_relations = generate_place_containment(G)
@@ -638,9 +654,10 @@ def generate_improved_places_init(
         symbol_lookup,
     )
     forbidden_nodes = build_forbidden_nodes(forbidden_symbols, layer_planner)
-    retain_adjacent_stances(
-        symbols_of_interest, object_containment_relations, layer_planner, symbol_lookup,
-    )
+    if needs_stances or (state is not None and state.holding):
+        retain_adjacent_stances(
+            symbols_of_interest, object_containment_relations, layer_planner, symbol_lookup,
+        )
     improved_symbols_of_interest = add_relevant_place_nodes(
         symbols_of_interest,
         forbidden_nodes,
@@ -657,7 +674,13 @@ def generate_improved_places_init(
 
     add_symbol_positions(G, improved_symbols_of_interest)
 
-    edges = dense_edges(improved_symbols_of_interest, layer_planner)
+    edges = [
+        (source, target, cost)
+        for source, target, cost in dense_edges(improved_symbols_of_interest, layer_planner)
+        if forbidden_nodes.isdisjoint(
+            (layer_planner.symbol_to_node_value[source.symbol], layer_planner.symbol_to_node_value[target.symbol])
+        )
+    ]
     start_connection(
         edges, start_symbol, improved_symbols_of_interest, layer_planner, routes,
         forbidden_nodes | {
@@ -666,6 +689,9 @@ def generate_improved_places_init(
     )
     connectivity_pddl = symbol_connectivity_to_pddl(edges)
 
+    undeclared = sorted(set(declarations) - set(improved_symbols_of_interest))
+    add_symbol_positions(G, undeclared)
+    improved_symbols_of_interest.extend(undeclared)
     containment_relations = filter_containment_relations(
         object_containment_relations,
         place_containment_relations,
@@ -705,11 +731,7 @@ def generate_region_rearrangement_pddl_compressed_graph(
 
     goal_pddl = simplify(parsed_pddl_goal)
 
-    goal_symbols, forbidden_symbols = extract_goal_symbols(goal_pddl)
-    normalize_symbols(goal_symbols)
-    normalize_symbols(forbidden_symbols["places"])
-    normalize_symbols(forbidden_symbols["objects"])
-    normalize_symbols(forbidden_symbols["regions"])
+    goal_symbols, forbidden_symbols, declarations = extract_routing_goal(goal_pddl)
 
     start_place_symbol = make_start_place_symbol(initial_position)
     symbols_of_interest = [start_place_symbol] + goal_symbols
@@ -722,6 +744,11 @@ def generate_region_rearrangement_pddl_compressed_graph(
         domain_name,
         state,
         routes,
+        declarations=declarations,
+        needs_stances=any(
+            extract_facts(goal_pddl, predicate)
+            for predicate in ("object-in-place", "holding", "hand-full", "placed", "suspicious")
+        ),
     )
     return build_region_rearrangement_problem(domain_name, symbols, init, goal_pddl)
 
@@ -873,7 +900,15 @@ def build_compressed_place_graph(
         primary_nodes,
     )
 
-    important_nodes = set(primary_nodes) | set(secondary_nodes) | set(protected_nodes)
+    inspection_stances = set()
+    for path in paths.values():
+        for left, right in zip(path, path[1:]):
+            if right in protected_nodes:
+                inspection_stances.add(left)
+            if left in protected_nodes:
+                inspection_stances.add(right)
+
+    important_nodes = primary_nodes | secondary_nodes | protected_nodes | inspection_stances
 
     segments = build_segments_from_paths(
         paths,
@@ -927,6 +962,9 @@ def generate_improved_places_init_v2(
     domain_name,
     state=None,
     routes=None,
+    *,
+    declarations=(),
+    needs_stances=True,
 ):
     object_containment_relations, suspicious_objects = effective_scene(G, state)
     place_containment_relations = generate_place_containment(G)
@@ -961,17 +999,12 @@ def generate_improved_places_init_v2(
         layer_planner,
         symbol_lookup,
     )
-    retain_adjacent_stances(
-        symbols_of_interest, object_containment_relations, layer_planner, symbol_lookup,
-    )
-    primary_nodes = build_primary_nodes(
-        symbols_of_interest,
-        layer_planner,
-    )
-    forbidden_nodes = build_forbidden_nodes(
-        forbidden_symbols,
-        layer_planner,
-    )
+    if needs_stances or (state is not None and state.holding):
+        retain_adjacent_stances(
+            symbols_of_interest, object_containment_relations, layer_planner, symbol_lookup,
+        )
+    forbidden_nodes = build_forbidden_nodes(forbidden_symbols, layer_planner)
+    primary_nodes = build_primary_nodes(symbols_of_interest, layer_planner) - forbidden_nodes
     protected_nodes = extract_protected_nodes(
         suspicious_objects,
         object_containment_relations,
@@ -1020,6 +1053,9 @@ def generate_improved_places_init_v2(
     )
     connectivity_pddl = symbol_connectivity_to_pddl(edges)
 
+    undeclared = sorted(set(declarations) - set(improved_symbols_of_interest))
+    add_symbol_positions(G, undeclared)
+    improved_symbols_of_interest.extend(undeclared)
     containment_relations = filter_containment_relations(
         object_containment_relations,
         place_containment_relations,
