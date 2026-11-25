@@ -1,0 +1,10 @@
+string INVALIDATED=invalidated
+string SATISFIED=satisfied
+string UNSOLVABLE=unsolvable
+string TIMEOUT=timeout
+string FAILED=failed
+string RETRY_LIMIT=retry_limit
+string robot_id
+string plan_id
+string status
+string reason

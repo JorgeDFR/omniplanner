@@ -12,6 +12,10 @@ import numpy as np
 import spark_config as sc
 from dsg_pddl.planning.parameterization import PddlPlan
 from dsg_pddl.core.models import PddlDomain, PddlGoal
+from dsg_pddl.domain_names import (
+    REGION_REARRANGEMENT_DERIVED_DOMAIN,
+    REGION_REARRANGEMENT_EXPLICIT_STATE_DOMAIN,
+)
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Path
 from omniplanner.core import (
@@ -154,7 +158,7 @@ def compile_pddl_plan(
     ):
         if symbolic_action[0] in ("pick-object", "place-object"):
             obj = symbolic_action[1]
-            object_class = context[obj].get("semantic_label", "") if obj in context else ""
+            object_class = (context[obj].get("semantic_label") or "") if obj in context else ""
         match symbolic_action[0]:
             case "goto-poi":
                 actions.append(Follow(frame=frame_id, path2d=parameters))
@@ -248,6 +252,12 @@ class PddlPlannerRos:
             with open(str(path), "r") as fo:
                 # Currently, we have a fixed domain. In the future, could make adjustments based on goal message?
                 self.domain = PddlDomain(fo.read())
+
+    @property
+    def supports_region_repair(self):
+        return self.domain.domain_name in (
+            REGION_REARRANGEMENT_DERIVED_DOMAIN, REGION_REARRANGEMENT_EXPLICIT_STATE_DOMAIN,
+        )
 
     def get_plan_callback(self):
         # TODO: topic name should depend on the config (i.e. what domain is specified)

@@ -202,7 +202,8 @@ class OmniPlannerRos(Node):
         self.plan_time_start_lock = threading.Lock()
 
         self.dsg_lock = threading.Lock()
-        DsgSubscriber(self, "~/dsg_in", self.dsg_callback)
+        enable_region_repair = self.declare_parameter("enable_region_repair", False).value
+        DsgSubscriber(self, "~/dsg_in", self.dsg_callback, replace_full=enable_region_repair)
 
         latching_reliable_qos = QoSProfile(
             depth=1,
@@ -251,6 +252,12 @@ class OmniPlannerRos(Node):
         # Initialize a feedback collector to be populated by plugins
         self.feedback = OmniplannerFeedbackCollector()
 
+        self.region_repair = None
+        if enable_region_repair:
+            from omniplanner_ros.region_repair import RegionRepair
+
+            self.region_repair = RegionRepair(self)
+
         for name, planner in self.config.planners.items():
             plugin = planner.plugin.create()
             if plugin is None:
@@ -262,17 +269,15 @@ class OmniPlannerRos(Node):
     def dsg_callback(self, header, dsg):
         self.get_logger().warning("Setting DSG!")
 
-        with self.last_dsg_time_lock and self.dsg_lock:
+        with self.last_dsg_time_lock, self.dsg_lock:
             self.dsg_last = dsg
             self.dsg_frame = header.frame_id
             self.last_dsg_time = time.time()
+        if self.region_repair is not None:
+            self.region_repair.graph_updated(dsg)
 
     def hb_callback(self):
-        with (
-            self.last_dsg_time_lock
-            and self.current_planner_lock
-            and self.plan_time_start_lock
-        ):
+        with self.last_dsg_time_lock, self.current_planner_lock, self.plan_time_start_lock:
             dsg_age = time.time() - self.last_dsg_time
             have_recent_dsg = dsg_age < 15
 
@@ -311,40 +316,61 @@ class OmniPlannerRos(Node):
             self
         )
 
-        def plan_handler(msg):
+        repair = self.region_repair if getattr(plugin, "supports_region_repair", False) else None
+
+        def plan_handler(msg, mission=None):
             self.get_logger().info(f"Handling plan for plugin {name}")
 
             if self.dsg_last is None:
-                self.get_logger().error("Got plan request, but no DSG!")
+                reason = "Got plan request, but no DSG"
+                self.get_logger().error(reason)
+                if mission is not None:
+                    mission.finished = True
+                    repair.report(mission, "failed", reason)
                 return
 
             with self.current_planner_lock and self.plan_time_start_lock:
                 self.current_planner = name
                 self.plan_time_start = time.time()
 
-            robot_poses = self.get_robot_poses(self.dsg_frame)
-            self.get_logger().info(f"Planning with robot poses {robot_poses}")
+            try:
+                robot_poses = self.get_robot_poses(self.dsg_frame)
+                plan_request = callback(msg, robot_poses)
+                if mission is not None:
+                    plan_request.goal.mission_state = mission.state
+                with self.dsg_lock:
+                    plans = full_planning_pipeline(plan_request, self.dsg_last, self.feedback)
 
-            plan_request = callback(msg, robot_poses)
-            with self.dsg_lock:
-                plans = full_planning_pipeline(
-                    plan_request, self.dsg_last, self.feedback
-                )
+                compiled_plans = compile_plan(self.robot_adaptors, self.dsg_frame, plans)
+                plan_dict = collect_plans(compiled_plans)
+                for robot_name, compiled_plan in plan_dict.items():
+                    message = to_msg(compiled_plan)
+                    if mission is not None:
+                        if not message.actions:
+                            mission.finished = True
+                            repair.report(mission, "satisfied")
+                            return
+                        repair.dispatch(mission, message, plans.value.value, self.dsg_last)
+                    self.robot_adaptors[robot_name].publish_plan(message)
+                    self.compiled_plan_viz_pub.publish(to_viz_msg(compiled_plan, robot_name))
+                self.get_logger().info("Published Plan")
+            except Exception as error:
+                if mission is None:
+                    raise
+                from dsg_pddl.planning.solver import PddlSolveError
 
-            compiled_plans = compile_plan(self.robot_adaptors, self.dsg_frame, plans)
-            plan_dict = collect_plans(compiled_plans)
-            for robot_name, compiled_plan in plan_dict.items():
-                self.robot_adaptors[robot_name].publish_plan(to_msg(compiled_plan))
-                # TODO: combine markers into single array so that latching works
-                # correctly for multi-robot plans?
-                self.compiled_plan_viz_pub.publish(
-                    to_viz_msg(compiled_plan, robot_name)
-                )
+                mission.finished = True
+                status = error.status if isinstance(error, PddlSolveError) else "failed"
+                self.get_logger().error(str(error))
+                repair.report(mission, status, str(error))
+            finally:
+                with self.current_planner_lock, self.plan_time_start_lock:
+                    self.current_planner = None
+                    self.plan_time_start = None
 
-            with self.current_planner_lock and self.plan_time_start_lock:
-                self.current_planner = None
-                self.plan_time_start = None
-            self.get_logger().info("Published Plan")
+        def on_goal(msg):
+            mission = repair.new_goal(msg, plan_handler) if repair is not None else None
+            plan_handler(msg, mission)
 
         resolved_topic_name = name + "/" + topic
         self.get_logger().info(
@@ -353,7 +379,7 @@ class OmniPlannerRos(Node):
         self.create_subscription(
             msg_type,
             f"~/{resolved_topic_name}",
-            plan_handler,
+            on_goal,
             1,
         )
 

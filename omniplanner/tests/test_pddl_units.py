@@ -238,7 +238,7 @@ def test_grounding_pddl_generators_with_stubbed_graph(monkeypatch):
 
     monkeypatch.setattr(grounding_impl, "extract_all_symbols", lambda graph: all_symbols[:])
     monkeypatch.setattr(grounding_impl, "add_symbol_positions", lambda graph, symbols: symbols)
-    monkeypatch.setattr(grounding_impl, "generate_init", lambda graph, symbols, start: [("at-poi", start.symbol)])
+    monkeypatch.setattr(grounding_impl, "generate_init", lambda graph, symbols, start, *args: [("at-place", start.symbol)])
     monkeypatch.setattr(grounding_impl, "generate_dense_init", lambda graph, symbols, start: [("dense", start.symbol)])
     monkeypatch.setattr(grounding_impl, "generate_dense_region_init", lambda graph, symbols, start: [("region", start.symbol)])
 
@@ -280,7 +280,7 @@ def test_pddl_ground_problem_routes_legacy_and_improved_domains(monkeypatch):
     monkeypatch.setattr(
         improved_impl,
         "generate_region_rearrangement_pddl_compressed_graph",
-        lambda graph, goal, start, domain_name: ("improved-problem", symbols),
+        lambda graph, goal, start, **kwargs: ("improved-problem", symbols),
     )
     improved_domain = PddlDomain(
         DOMAIN.replace(
@@ -295,7 +295,7 @@ def test_pddl_ground_problem_routes_legacy_and_improved_domains(monkeypatch):
 
 def test_improved_grounding_selection_helpers():
     goal = lisp_string_to_ast(
-        "(and (at-poi p1) (object-in-place o1 p2) (visited-region r1) "
+        "(and (at-place p1) (object-in-place o1 p2) (visited-region r1) "
         "(not (visited-place p9)) (not (visited-object o9)))"
     )
     symbols, forbidden = improved.extract_goal_symbols(goal)
@@ -333,7 +333,7 @@ def test_improved_graph_compression_helpers():
     paths = {(1, 3): [1, 2, 3], (4, 3): [4, 2, 3]}
     secondary = improved.compute_secondary_nodes_from_paths(paths, {1, 3, 4})
     assert secondary == {2}
-    segments = improved.build_segments_from_paths(paths, {1, 3, 4}, secondary, set())
+    segments = improved.build_segments_from_paths(paths, {1, 3, 4} | secondary)
     assert segments[(1, 2)] == [1, 2]
     assert segments[(2, 1)] == [2, 1]
 
@@ -350,9 +350,9 @@ def test_improved_pddl_generators_with_stubbed_init(monkeypatch):
     all_symbols = [PddlSymbol("P1", "place", []), PddlSymbol("O1", "object", [])]
     monkeypatch.setattr(improved_impl, "extract_all_symbols", lambda graph: all_symbols[:])
     monkeypatch.setattr(improved_impl, "add_symbol_positions", lambda graph, symbols: symbols)
-    monkeypatch.setattr(improved_impl, "generate_dense_places_init", lambda graph, symbols, start: [("at-poi", start.symbol)])
-    monkeypatch.setattr(improved_impl, "generate_improved_places_init", lambda graph, symbols, start, forbidden: ([("at-poi", start.symbol)], symbols))
-    monkeypatch.setattr(improved_impl, "generate_improved_places_init_v2", lambda graph, symbols, start, forbidden: ([("at-poi", start.symbol)], symbols))
+    monkeypatch.setattr(improved_impl, "generate_dense_places_init", lambda graph, symbols, start, *args: [("at-place", start.symbol)])
+    monkeypatch.setattr(improved_impl, "generate_improved_places_init", lambda graph, symbols, start, *args: ([("at-place", start.symbol)], symbols))
+    monkeypatch.setattr(improved_impl, "generate_improved_places_init_v2", lambda graph, symbols, start, *args: ([("at-place", start.symbol)], symbols))
 
     for generator in (
         improved.generate_region_rearrangement_pddl_all_symbols,

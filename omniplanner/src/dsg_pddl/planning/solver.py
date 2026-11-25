@@ -13,6 +13,12 @@ from dsg_pddl.core.parsing import lisp_string_to_ast
 logger = logging.getLogger(__name__)
 
 
+class PddlSolveError(RuntimeError):
+    def __init__(self, status):
+        super().__init__(f"Fast Downward returned {status}")
+        self.status = status
+
+
 def get_solver_env_config():
     optimal_timeout = float(os.getenv("PDDL_OPTIMAL_TIMEOUT", "10"))
     suboptimal_timeout = float(os.getenv("PDDL_SUBOPTIMAL_TIMEOUT", "60"))
@@ -104,6 +110,12 @@ def _run_fd(problem, domain, search_cmd, timeout, result_container, key):
                     result_container[key] = f.readlines()
             else:
                 result_container[key] = None
+                status = "failed"
+                if proc.returncode in (10, 11) or "No relaxed solution!" in stdout:
+                    status = "unsolvable"
+                elif proc.returncode in (21, 23, 24):
+                    status = "timeout"
+                result_container[f"{key}_status"] = status
                 if stderr:
                     logger.debug(f"{key} stderr: {stderr}")
 
@@ -111,7 +123,11 @@ def _run_fd(problem, domain, search_cmd, timeout, result_container, key):
             os.killpg(proc.pid, signal.SIGKILL)
             proc.wait()
             result_container[key] = None
+            result_container[f"{key}_status"] = "timeout"
             logger.debug(f"{key} timed out")
+        except OSError as error:
+            result_container[f"{key}_status"] = "failed"
+            logger.error(f"Could not run Fast Downward: {error}")
 
 
 def solve_pddl(problem: GroundedPddlProblem):
@@ -195,6 +211,13 @@ def solve_pddl(problem: GroundedPddlProblem):
         else:
             logger.warning("Planning failed.")
             chosen = []
+
+    if not chosen and problem.require_solution:
+        statuses = {value for key, value in results.items() if key.endswith("_status")}
+        status = "unsolvable" if "unsolvable" in statuses else (
+            "timeout" if "timeout" in statuses else "failed"
+        )
+        raise PddlSolveError(status)
 
     # -----------------------
     # Debug output

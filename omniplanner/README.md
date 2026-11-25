@@ -159,3 +159,24 @@ def ground_problem(domain: MyDomain, map_context, robot_states: dict, goal: MyGo
 def make_plan(grounded_problem: MyGroundedProblem, map_context):
     return plan
 ```
+
+### Single-robot region rearrangement
+
+Both improved region domains ground inspection, pickup, and placement from a
+directly adjacent DSG place. Pickup and placement also check 3D reach.
+Set `PDDL_MANIPULATION_REACH_M` to match the executor's reach (default
+`0.75`). `PDDL_SAMPLER` accepts `compressed` (default), `paths`, or `all`.
+
+Set `enable_region_repair:=true` on `omniplanner_node` to retain progress for
+the improved region domains. Send the initial goal using the plugin's usual
+`PddlGoalMsg` topic. The node consumes `/action_done` by default. Set
+`region_indexed_feedback:=true` to use
+`/<robot>/nav_executor/action_result` with action indexes.
+
+Subscribe to `~/region_plan_status` for invalidation and terminal planning
+outcomes. After stopping on an invalidation, send a `RegionReplanRequest` to
+`~/replan_request` with the robot and stopped plan IDs. Include the complete
+list of blocked edge endpoint pairs for the replacement solve. The node
+reads the current robot pose and graph, carries forward confirmed progress,
+and publishes the replacement with a fresh plan ID on the usual compiled-plan
+topic. `region_max_replans` defaults to three replacements per goal.

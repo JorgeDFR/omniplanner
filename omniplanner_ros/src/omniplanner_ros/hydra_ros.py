@@ -48,10 +48,10 @@ class DsgPublisher:
 class DsgSubscriber:
     """Class for receiving a scene graph in python."""
 
-    def __init__(self, node: Node, topic: str, callback, qos = None):
+    def __init__(self, node: Node, topic: str, callback, qos=None, *, replace_full=False):
         """Construct a DSG Receiver."""
         self._callback = callback
-        self._graph_set = False
+        self._replace_full = replace_full
         self._graph = None
         self._logger = node.get_logger()
 
@@ -72,9 +72,8 @@ class DsgSubscriber:
             f"Received dsg update message of {size_bytes} bytes"
         )
 
-        if not self._graph_set:
+        if self._graph is None or self._replace_full:
             self._graph = dsg.DynamicSceneGraph.from_binary(msg.layer_contents.tobytes())
-            self._graph_set = True
         else:
             self._graph.update_from_binary(msg.layer_contents.tobytes())
 

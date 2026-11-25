@@ -1,5 +1,5 @@
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import total_ordering
 from typing import Optional
 
@@ -96,9 +96,21 @@ class PddlProblem:
 
 
 @dataclass
+class RegionMissionState:
+    visited_places: set[str] = field(default_factory=set)
+    visited_objects: set[str] = field(default_factory=set)
+    visited_regions: set[str] = field(default_factory=set)
+    inspected: set[str] = field(default_factory=set)
+    holding: str | None = None
+    placements: dict[str, str] = field(default_factory=dict)
+    blocked_edges: set[frozenset[str]] = field(default_factory=set)
+
+
+@dataclass
 class PddlGoal:
     pddl_goal: str
     robot_id: str
+    mission_state: RegionMissionState | None = None
 
 
 class PddlDomain:
@@ -125,3 +137,5 @@ class GroundedPddlProblem:
     domain: PddlDomain
     problem_str: str
     symbols: dict[str, PddlSymbol]
+    routes: dict[tuple[str, str], list[np.ndarray]] = field(default_factory=dict)
+    require_solution: bool = False

@@ -1,10 +1,9 @@
+import copy
 import logging
-
+import os
 from collections import defaultdict
 from itertools import combinations
 
-import os
-import copy
 import networkx as nx
 import numpy as np
 import spark_dsg
@@ -17,7 +16,6 @@ from dsg_pddl.core.models import (
     PddlSymbol,
 )
 from dsg_pddl.grounding.connectivity import (
-    explicit_edges_from_layer,
     symbol_connectivity_to_pddl,
 )
 from dsg_pddl.grounding.containment import (
@@ -89,16 +87,21 @@ def ground_improved_problem(
 
     generate_symbols = get_region_sampler()
 
+    routes = {}
     pddl_problem, symbols = generate_symbols(
         dsg,
         goal.pddl_goal,
         start,
         domain_name=domain.domain_name,
+        state=goal.mission_state,
+        routes=routes,
     )
 
     symbol_dict = {s.symbol: s for s in symbols}
     return RobotWrapper[GroundedPddlProblem](
-        goal.robot_id, GroundedPddlProblem(domain, pddl_problem, symbol_dict)
+        goal.robot_id, GroundedPddlProblem(
+            domain, pddl_problem, symbol_dict, routes, require_solution=goal.mission_state is not None,
+        )
     )
 
 
@@ -138,6 +141,7 @@ def generate_region_rearrangement_pddl_all_symbols(
     raw_pddl_goal_string,
     initial_position,
     domain_name=REGION_REARRANGEMENT_EXPLICIT_STATE_DOMAIN,
+    *, state=None, routes=None,
 ):
     parsed_pddl_goal = lisp_string_to_ast(raw_pddl_goal_string)
 
@@ -148,10 +152,11 @@ def generate_region_rearrangement_pddl_all_symbols(
 
     start_place_symbol = make_start_place_symbol(initial_position)
     symbols = [start_place_symbol] + all_symbols
+    add_mission_objects(symbols, start_place_symbol, state)
 
     add_symbol_positions(G, symbols)
 
-    init = generate_dense_places_init(G, symbols, start_place_symbol, domain_name)
+    init = generate_dense_places_init(G, symbols, start_place_symbol, domain_name, state, routes)
     return build_region_rearrangement_problem(domain_name, symbols, init, goal_pddl)
 
 
@@ -173,79 +178,135 @@ def generate_suspicious_objects(G):
     return suspicious_objects
 
 
-def generate_dense_places_init(
-    G,
-    symbols_of_interest,
-    start_symbol,
-    domain_name
-):
-    symbol_lookup = {s.symbol: s for s in symbols_of_interest}
+def effective_scene(G, state):
+    containment = generate_object_containment(G)
+    suspicious = generate_suspicious_objects(G)
+    if state is None:
+        return containment, suspicious
 
-    connectivity = generate_dense_places_symbol_connectivity(G, symbols_of_interest, symbol_lookup)
-    connectivity_pddl = symbol_connectivity_to_pddl(connectivity)
-
-    initial_pddl = [
-        ("=", ("total-cost",), 0),
-        ("at-place", start_symbol.symbol)
+    known = {obj for _, obj, _ in containment}
+    containment = [
+        (predicate, obj, state.placements.get(obj, place))
+        for predicate, obj, place in containment if obj != state.holding
     ]
-    initial_pddl += connectivity_pddl
-
-    object_containment_relations = generate_object_containment(G)
-    place_containment_relations = generate_place_containment(G)
-    initial_pddl += object_containment_relations
-    initial_pddl += place_containment_relations
-    initial_pddl += interaction_facts(
-        G, symbols_of_interest, object_containment_relations, start_symbol,
-    )
-
-    suspicious_objects = generate_suspicious_objects(G)
-    relevant_suspicious_objects, relevant_unsafe_places = process_suspicious_objects(
-        suspicious_objects,
-        object_containment_relations,
-        symbols_of_interest,
-        symbol_lookup,
-    )
-    initial_pddl += relevant_suspicious_objects
-    initial_pddl += relevant_unsafe_places
-
-    return initial_pddl
+    containment += [
+        ("object-in-place", obj, place)
+        for obj, place in state.placements.items()
+        if obj not in known and obj != state.holding
+    ]
+    grounded_suspicion = [fact for fact in suspicious if fact[1] not in state.inspected
+                          and fact[1] != state.holding]
+    return containment, grounded_suspicion
 
 
-def add_start_place_connection(
-    edges,
-    start_symbol,
-    symbols,
-    layer_planner,
-    threshold=3.0,
-):
-    start_position = start_symbol.position
-    for s in symbols:
-        if s.symbol == "pstart" or s.layer != "place":
-            continue
-
-        dist = layer_planner.get_external_distance(start_position, s.position)
-        if dist < threshold:
-            edges.append((start_symbol, s, int(np.ceil(dist))))
+def add_mission_objects(symbols, start, state):
+    if state is None:
+        return
+    known = {normalize_symbol(symbol) for symbol in symbols}
+    for obj in sorted(set(state.placements) | ({state.holding} if state.holding else set())):
+        if obj not in known:
+            symbols.append(PddlSymbol(obj, "object", [], position=start.position))
 
 
-def generate_dense_places_symbol_connectivity(G, symbols, symbol_lookup):
-    try:
-        places_layer = G.get_layer(spark_dsg.DsgLayers.MESH_PLACES)
-    except Exception:
-        places_layer = G.get_layer(20)
+def apply_mission_state(init, symbols, start, layer_planner, domain_name, state):
+    if state is None:
+        return
+    known = {symbol.symbol for symbol in symbols}
+    visits = [("visited-place", state.visited_places)]
+    if domain_name == REGION_REARRANGEMENT_EXPLICIT_STATE_DOMAIN:
+        visits += [("visited-object", state.visited_objects), ("visited-region", state.visited_regions)]
+    for predicate, visited in visits:
+        init.extend((predicate, name) for name in sorted(visited & known))
+    by_name = {symbol.symbol: symbol for symbol in symbols}
+    for obj in sorted(known & state.placements.keys()):
+        target = by_name.get(state.placements[obj])
+        if target is not None:
+            init.append(("placed", obj))
+            by_name[obj].position_3d = target.position_3d
+    if state.holding in known:
+        init.extend([("holding", state.holding), ("hand-full",)])
 
+    anchor = layer_planner.get_closest_node_id(start.position)
+    place = layer_planner.node_value_to_symbol[anchor]
+    if place in known and np.allclose(start.position, layer_planner.node_value_to_position[anchor]):
+        init.remove(("at-place", start.symbol))
+        init.append(("at-place", place))
+        if domain_name == REGION_REARRANGEMENT_EXPLICIT_STATE_DOMAIN:
+            init.extend(("at-object", fact[1]) for fact in init[:]
+                        if fact[0] == "object-in-place" and fact[2] == place)
+            init.extend(("in-region", fact[2]) for fact in init[:]
+                        if fact[0] == "place-in-region" and fact[1] == place)
+
+
+def region_layer_planner(G, state):
+    planner = LayerPlanner(G, spark_dsg.DsgLayers.MESH_PLACES)
+    if state is not None:
+        blocked = [
+            tuple(planner.symbol_to_node_value[name] for name in edge)
+            for edge in state.blocked_edges
+            if len(edge) == 2 and edge <= planner.symbol_to_node_value.keys()
+        ]
+        planner.nx_layer.remove_edges_from(blocked)
+    return planner
+
+
+def dense_edges(symbols, layer_planner):
+    lookup = {symbol.symbol: symbol for symbol in symbols if symbol.layer == "place"}
     edges = []
-
-    # Place <-> Place Edges
-    edges += explicit_edges_from_layer(symbol_lookup, G, places_layer)
-
-    # Connection between starting place and other symbols
-    start_symbol = symbol_lookup["pstart"]
-    layer_planner = LayerPlanner(G, spark_dsg.DsgLayers.MESH_PLACES)
-    add_start_place_connection(edges, start_symbol, symbols, layer_planner)
-
+    for left, right in layer_planner.nx_layer.edges:
+        source = lookup.get(layer_planner.node_value_to_symbol[left])
+        target = lookup.get(layer_planner.node_value_to_symbol[right])
+        if source is not None and target is not None:
+            edges.append((source, target, int(np.ceil(np.linalg.norm(source.position - target.position)))))
     return edges
 
+
+def start_connection(edges, start_symbol, symbols, layer_planner, routes, excluded=()):
+    node = layer_planner.get_closest_node_id(start_symbol.position)
+    graph = layer_planner.nx_layer
+    excluded = set(excluded) - {node}
+    allowed = nx.subgraph_view(graph, filter_node=lambda vertex: vertex not in excluded)
+    paths = nx.single_source_shortest_path(allowed, node, cutoff=2)
+    offset = np.linalg.norm(start_symbol.position - layer_planner.node_value_to_position[node])
+    for symbol in symbols:
+        if symbol.layer != "place" or symbol.symbol == start_symbol.symbol:
+            continue
+        target = layer_planner.symbol_to_node_value[symbol.symbol]
+        path = paths.get(target)
+        if path is None or offset + len(path) - 1 >= 3.0:
+            continue
+        cost = int(np.ceil(offset + len(path) - 1))
+        edges.append((start_symbol, symbol, cost))
+        if routes is not None:
+            routes[(start_symbol.symbol, symbol.symbol)] = [
+                start_symbol.position, *(layer_planner.node_value_to_position[vertex] for vertex in path),
+            ]
+    if routes is not None:
+        for source, target, _ in edges:
+            routes.setdefault((source.symbol, target.symbol), [source.position, target.position])
+            routes.setdefault((target.symbol, source.symbol), list(reversed(routes[source.symbol, target.symbol])))
+
+
+def generate_dense_places_init(G, symbols, start_symbol, domain_name, state=None, routes=None):
+    layer_planner = region_layer_planner(G, state)
+    edges = dense_edges(symbols, layer_planner)
+    containment, suspicious = effective_scene(G, state)
+    containment = filter_containment_relations(
+        containment, generate_place_containment(G), symbols,
+        {symbol.symbol: symbol for symbol in symbols},
+    )
+    relevant_suspicious, unsafe = process_suspicious_objects(
+        suspicious, containment, symbols, {symbol.symbol: symbol for symbol in symbols},
+    )
+    start_connection(
+        edges, start_symbol, symbols, layer_planner, routes,
+        (layer_planner.symbol_to_node_value[place] for _, place in unsafe),
+    )
+    init = [("=", ("total-cost",), 0), ("at-place", start_symbol.symbol)]
+    init += symbol_connectivity_to_pddl(edges) + containment + relevant_suspicious + unsafe
+    init += interaction_facts(G, symbols, containment, start_symbol, layer_planner)
+    apply_mission_state(init, symbols, start_symbol, layer_planner, domain_name, state)
+    return init
 
 
 # -------------------------------------------------------------------------
@@ -256,6 +317,7 @@ def generate_region_rearrangement_pddl_relevant_paths(
     raw_pddl_goal_string,
     initial_position,
     domain_name=REGION_REARRANGEMENT_EXPLICIT_STATE_DOMAIN,
+    *, state=None, routes=None,
 ):
     parsed_pddl_goal = lisp_string_to_ast(raw_pddl_goal_string)
 
@@ -276,6 +338,8 @@ def generate_region_rearrangement_pddl_relevant_paths(
         start_place_symbol,
         forbidden_symbols,
         domain_name,
+        state,
+        routes,
     )
     return build_region_rearrangement_problem(domain_name, symbols, init, goal_pddl)
 
@@ -310,7 +374,7 @@ def extract_goal_symbols(pddl_goal):
     forbidden_region_symbols = {PddlSymbol(f[1], "region", []) for f in forbidden_region_facts}
 
     return (
-        list(goal_symbols),
+        sorted(goal_symbols),
         {
             "places": list(forbidden_place_symbols),
             "objects": list(forbidden_object_symbols),
@@ -355,13 +419,13 @@ def retain_adjacent_stances(symbols, containment, layer_planner, symbol_lookup):
                     retained.add(symbol)
 
 
-def interaction_facts(G, symbols, containment, start):
+def interaction_facts(G, symbols, containment, start, layer_planner):
     """Use original place edges and 3D geometry for local interactions."""
     places = {
         normalize_symbol(node.id.str(True)): node
         for node in get_places_layer(G).nodes
     }
-    by_id = {node.id.value: name for name, node in places.items()}
+    by_id = layer_planner.node_value_to_symbol
     positions = {name: node.attributes.position for name, node in places.items()}
     known = {symbol.symbol for symbol in symbols}
     objects = {
@@ -372,9 +436,7 @@ def interaction_facts(G, symbols, containment, start):
     for predicate, obj, place in containment:
         if predicate == "object-in-place":
             objects_at[place].append(obj)
-    start_anchor = min(places, key=lambda name: np.linalg.norm(
-        positions[name][:2] - start.position
-    ))
+    start_anchor = by_id[layer_planner.get_closest_node_id(start.position)]
     positions[start.symbol] = np.r_[start.position, positions[start_anchor][2]]
     for symbol in symbols:
         symbol.position_3d = positions.get(symbol.symbol, objects.get(symbol.symbol))
@@ -383,7 +445,11 @@ def interaction_facts(G, symbols, containment, start):
         raise ValueError("PDDL_MANIPULATION_REACH_M must be finite and positive")
     facts = []
     for target in sorted(known & places.keys()):
-        stances = {by_id[node] for node in places[target].siblings() if node in by_id}
+        stances = {
+            by_id[node] for node in layer_planner.nx_layer.neighbors(
+                layer_planner.symbol_to_node_value[target]
+            )
+        }
         if start_anchor in stances and not np.allclose(start.position, positions[target][:2]):
             stances.add(start.symbol)
         for stance in sorted((stances & known) - {target}):
@@ -391,7 +457,7 @@ def interaction_facts(G, symbols, containment, start):
             if np.linalg.norm(positions[target] - positions[stance]) <= reach:
                 facts.append(("place-reachable", target, stance))
             for obj in objects_at[target]:
-                if np.linalg.norm(objects[obj] - positions[stance]) <= reach:
+                if obj in objects and np.linalg.norm(objects[obj] - positions[stance]) <= reach:
                     facts.append(("initial-pick-reachable", obj, stance))
     return facts
 
@@ -504,41 +570,6 @@ def process_suspicious_objects(
     return relevant_suspicious_objects, relevant_unsafe_places
 
 
-def build_place_edges(
-    G,
-    improved_symbols_of_interest,
-    symbol_lookup,
-):
-    try:
-        places_layer = G.get_layer(spark_dsg.DsgLayers.MESH_PLACES)
-    except Exception:
-        places_layer = G.get_layer(20)
-
-    edges = []
-    for node in places_layer.nodes:
-        if symbol_lookup[normalize_symbol(node.id.str(True))] not in improved_symbols_of_interest:
-            continue
-
-        p1 = node.attributes.position
-        normalized_symbol = symbol_lookup[normalize_symbol(node.id.str(True))]
-        for neighbor in node.siblings():
-            if node.id.value < neighbor:
-                continue
-
-            n = G.get_node(neighbor)
-            if symbol_lookup[normalize_symbol(n.id.str(True))] not in improved_symbols_of_interest:
-                continue
-
-            p2 = n.attributes.position
-            normalized_symbol2 = symbol_lookup[normalize_symbol(n.id.str(True))]
-            dist = np.linalg.norm(p1 - p2)
-            edges.append(
-                (normalized_symbol, normalized_symbol2, int(np.ceil(dist)))
-            )
-
-    return edges
-
-
 def filter_containment_relations(
     object_containment_relations,
     place_containment_relations,
@@ -571,13 +602,19 @@ def generate_improved_places_init(
     start_symbol,
     forbidden_symbols,
     domain_name,
+    state=None,
+    routes=None,
 ):
-    object_containment_relations = generate_object_containment(G)
+    object_containment_relations, suspicious_objects = effective_scene(G, state)
     place_containment_relations = generate_place_containment(G)
-    suspicious_objects = generate_suspicious_objects(G)
 
     symbols = extract_all_symbols(G)
+    add_mission_objects(symbols, start_symbol, state)
     normalize_symbols(symbols)
+    if state is not None and state.holding:
+        held = next(symbol for symbol in symbols if symbol.symbol == state.holding)
+        if held not in symbols_of_interest:
+            symbols_of_interest.append(held)
     symbol_lookup = {s.symbol: s for s in symbols}
 
     add_object_related_places(
@@ -593,7 +630,7 @@ def generate_improved_places_init(
         symbol_lookup,
     )
 
-    layer_planner = LayerPlanner(G, spark_dsg.DsgLayers.MESH_PLACES)
+    layer_planner = region_layer_planner(G, state)
     add_start_place(
         symbols_of_interest,
         start_symbol,
@@ -620,12 +657,12 @@ def generate_improved_places_init(
 
     add_symbol_positions(G, improved_symbols_of_interest)
 
-    edges = build_place_edges(G, improved_symbols_of_interest, symbol_lookup)
-    add_start_place_connection(
-        edges,
-        start_symbol,
-        improved_symbols_of_interest,
-        layer_planner,
+    edges = dense_edges(improved_symbols_of_interest, layer_planner)
+    start_connection(
+        edges, start_symbol, improved_symbols_of_interest, layer_planner, routes,
+        forbidden_nodes | {
+            layer_planner.symbol_to_node_value[place] for _, place in relevant_unsafe_places
+        },
     )
     connectivity_pddl = symbol_connectivity_to_pddl(edges)
 
@@ -644,11 +681,12 @@ def generate_improved_places_init(
     initial_pddl += connectivity_pddl
     initial_pddl += containment_relations
     initial_pddl += interaction_facts(
-        G, improved_symbols_of_interest, containment_relations, start_symbol,
+        G, improved_symbols_of_interest, containment_relations, start_symbol, layer_planner,
     )
     initial_pddl += relevant_suspicious_objects
     initial_pddl += relevant_unsafe_places
 
+    apply_mission_state(initial_pddl, improved_symbols_of_interest, start_symbol, layer_planner, domain_name, state)
     return initial_pddl, improved_symbols_of_interest
 
 
@@ -661,6 +699,7 @@ def generate_region_rearrangement_pddl_compressed_graph(
     raw_pddl_goal_string,
     initial_position,
     domain_name=REGION_REARRANGEMENT_EXPLICIT_STATE_DOMAIN,
+    *, state=None, routes=None,
 ):
     parsed_pddl_goal = lisp_string_to_ast(raw_pddl_goal_string)
 
@@ -681,6 +720,8 @@ def generate_region_rearrangement_pddl_compressed_graph(
         start_place_symbol,
         forbidden_symbols,
         domain_name,
+        state,
+        routes,
     )
     return build_region_rearrangement_problem(domain_name, symbols, init, goal_pddl)
 
@@ -800,7 +841,7 @@ def build_segments_from_paths(paths, important_nodes):
                 if start != end:
                     key = tuple(sorted((start, end)))
                     if key not in segments:
-                        segments[key] = list(current)
+                        segments[key] = list(current if start == key[0] else reversed(current))
                 current = [node]
 
     for (a, b), seg in segments.items():
@@ -825,7 +866,7 @@ def build_compressed_place_graph(
     )
 
     if not paths:
-        return set(), {}
+        return set(primary_nodes), []
 
     secondary_nodes = compute_secondary_nodes_from_paths(
         paths,
@@ -860,7 +901,12 @@ def build_compressed_edges(
     symbol_lookup,
 ):
     edges = []
+    used = set()
     for start_node, end_node, total_dist, _ in compressed_edges_raw:
+        key = frozenset((start_node, end_node))
+        if key in used:
+            continue
+        used.add(key)
         s1 = symbol_lookup[normalize_symbol(layer_planner.node_value_to_symbol[start_node])]
         s2 = symbol_lookup[normalize_symbol(layer_planner.node_value_to_symbol[end_node])]
 
@@ -879,13 +925,19 @@ def generate_improved_places_init_v2(
     start_symbol,
     forbidden_symbols,
     domain_name,
+    state=None,
+    routes=None,
 ):
-    object_containment_relations = generate_object_containment(G)
+    object_containment_relations, suspicious_objects = effective_scene(G, state)
     place_containment_relations = generate_place_containment(G)
-    suspicious_objects = generate_suspicious_objects(G)
 
     symbols = extract_all_symbols(G)
+    add_mission_objects(symbols, start_symbol, state)
     normalize_symbols(symbols)
+    if state is not None and state.holding:
+        held = next(symbol for symbol in symbols if symbol.symbol == state.holding)
+        if held not in symbols_of_interest:
+            symbols_of_interest.append(held)
 
     symbol_lookup = {s.symbol: s for s in symbols}
 
@@ -902,7 +954,7 @@ def generate_improved_places_init_v2(
         symbol_lookup,
     )
 
-    layer_planner = LayerPlanner(G, spark_dsg.DsgLayers.MESH_PLACES)
+    layer_planner = region_layer_planner(G, state)
     add_start_place(
         symbols_of_interest,
         start_symbol,
@@ -956,11 +1008,15 @@ def generate_improved_places_init_v2(
         layer_planner,
         symbol_lookup,
     )
-    add_start_place_connection(
-        edges,
-        start_symbol,
-        improved_symbols_of_interest,
-        layer_planner,
+    if routes is not None:
+        for left, right, _, nodes in compressed_edges_raw:
+            key = (layer_planner.node_value_to_symbol[left], layer_planner.node_value_to_symbol[right])
+            routes[key] = [layer_planner.node_value_to_position[node] for node in nodes]
+    start_connection(
+        edges, start_symbol, improved_symbols_of_interest, layer_planner, routes,
+        forbidden_nodes | {
+            layer_planner.symbol_to_node_value[place] for _, place in relevant_unsafe_places
+        },
     )
     connectivity_pddl = symbol_connectivity_to_pddl(edges)
 
@@ -978,9 +1034,10 @@ def generate_improved_places_init_v2(
     initial_pddl += connectivity_pddl
     initial_pddl += containment_relations
     initial_pddl += interaction_facts(
-        G, improved_symbols_of_interest, containment_relations, start_symbol,
+        G, improved_symbols_of_interest, containment_relations, start_symbol, layer_planner,
     )
     initial_pddl += relevant_suspicious_objects
     initial_pddl += relevant_unsafe_places
 
+    apply_mission_state(initial_pddl, improved_symbols_of_interest, start_symbol, layer_planner, domain_name, state)
     return initial_pddl, improved_symbols_of_interest

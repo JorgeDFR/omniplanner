@@ -39,10 +39,9 @@ class DsgContextProvider(dict):
                 symbol_info["position"] = node.attributes.position
                 node_layer = node.layer.layer
                 node_partition = node.layer.partition
-                category = self.dsg.get_labelspace(
-                    node_layer, node_partition
-                ).get_node_category(node)
-                symbol_info["semantic_label"] = category
+                labelspace = self.dsg.get_labelspace(node_layer, node_partition)
+                if labelspace is not None:
+                    symbol_info["semantic_label"] = labelspace.get_node_category(node)
 
         try:
             explicit_symbols = dict.__getitem__(self, key)

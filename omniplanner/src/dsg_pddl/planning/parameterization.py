@@ -101,7 +101,10 @@ def make_plan(grounded_problem: GroundedPddlProblem, map_context: Any) -> PddlPl
                 continue
         match p[0]:
             case "goto-poi":
-                if multirobot:
+                route = grounded_problem.routes.get((p[1], p[2]))
+                if route is not None:
+                    path, last_pose = route, route[-1]
+                elif multirobot:
                     path, last_pose = parameterize_goto_poi_multirobot(
                         layer_planner, grounded_problem.symbols, p
                     )
