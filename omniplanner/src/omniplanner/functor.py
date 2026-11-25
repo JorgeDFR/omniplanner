@@ -15,8 +15,8 @@ Functor = Union[FunctorTrait, Iterable]
 def generic_inference(K):
     @classmethod
     def inference_function(self, *args):
-        type_params = getattr(K, "__type_params__", None)
-        if type_params is None:
+        type_params = getattr(K, "__type_params__", ())
+        if not type_params:
             type_params = getattr(K, "__parameters__", ())
         field_types = [v.type for v in K.__dataclass_fields__.values()]
 

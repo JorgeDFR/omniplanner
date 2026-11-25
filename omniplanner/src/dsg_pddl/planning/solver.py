@@ -191,7 +191,7 @@ def solve_pddl(problem: GroundedPddlProblem):
         logger.warning("No PDDL solvers enabled.")
         chosen = []
     else:
-        start = time.time()
+        start = time.monotonic()
 
         for t in threads:
             t.start()
@@ -199,8 +199,8 @@ def solve_pddl(problem: GroundedPddlProblem):
         for t in threads:
             t.join()
 
-        elapsed = time.time() - start
-        logger.debug(f"PDDL solving finished in {elapsed:.2f}s")
+        elapsed = time.monotonic() - start
+        logger.info("PDDL_SOLVER_WALL_SECONDS %.6f", elapsed)
 
         if results.get("optimal"):
             logger.debug("Returning OPTIMAL plan")
